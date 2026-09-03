@@ -1,0 +1,33 @@
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*.test
+*.out
+
+# Go build cache
+/vendor/
+
+# Go workspace
+go.work
+go.work.sum
+
+# Local Git worktrees
+.worktrees/
+
+# Coverage output
+coverage.html
+coverage.out
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
