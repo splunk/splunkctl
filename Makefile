@@ -15,12 +15,14 @@ SPLUNKCTL_BIN ?= $(CURDIR)/bin/splunkctl
 INTEGRATION_RUNNER ?= $(CURDIR)/bin/integration-runner
 LOCAL_DEPLOYMENT_FILE ?= cicd/tools/orca/deployment/local-deployment.yml
 
+build-runner: build
+	go build -o bin/integration-runner ./tests/integration/runner
+
 build:
 	$(eval COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo none))
 	$(eval BUILT  := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ'))
 	mkdir -p $(BUILD_PATH)
 	go build -ldflags "-X github.com/splunk/splunkctl/cmd.Version=$(version) -X github.com/splunk/splunkctl/cmd.Commit=$(COMMIT) -X github.com/splunk/splunkctl/cmd.Built=$(BUILT)" -o $(BUILD_PATH)/$(APP_NAME) .
-	go build -o bin/integration-runner ./tests/integration/runner
 
 package: build
 	cp VERSION $(BUILD_PATH)/VERSION
@@ -31,7 +33,7 @@ test:
 	go tool cover -func=coverage.out
 
 test-integration:
-	@test -x "$(SPLUNKCTL_BIN)" || { echo "Missing $(SPLUNKCTL_BIN), run 'make build' to create binaries"; exit 1; }
+	@test -x "$(SPLUNKCTL_BIN)" || { echo "Missing $(SPLUNKCTL_BIN), run 'make build-runner' to create binaries and run int tests"; exit 1; }
 	@test -x "$(INTEGRATION_RUNNER)" || { echo "Missing $(INTEGRATION_RUNNER)"; exit 1; }
 	"$(INTEGRATION_RUNNER)" \
 		--mode "$(INTEGRATION_MODE)" \
