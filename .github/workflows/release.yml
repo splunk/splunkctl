@@ -74,12 +74,16 @@ jobs:
           package_file="package/${{ matrix.binary }}_${version}_${commit}.tar.gz"
           test -f "$package_file"
           asset_base="splunkctl_${version}_${{ matrix.platform }}"
-          mv "$package_file" "dist/${asset_base}.tar.gz"
-          (
-            cd package
-            zip -q "../dist/${asset_base}.zip" "${{ matrix.binary }}" VERSION
-          )
-          test -f "dist/${asset_base}.zip"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            (
+              cd package
+              zip -q "../dist/${asset_base}.zip" "${{ matrix.binary }}" VERSION
+            )
+            test -f "dist/${asset_base}.zip"
+          else
+            mv "$package_file" "dist/${asset_base}.tar.gz"
+            test -f "dist/${asset_base}.tar.gz"
+          fi
 
       - name: Upload package archives
         uses: actions/upload-artifact@v4
@@ -107,13 +111,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(find dist -maxdepth 1 -name '*.tar.gz' -type f | wc -l | tr -d ' ')" = "5"
-          test "$(find dist -maxdepth 1 -name '*.zip' -type f | wc -l | tr -d ' ')" = "5"
+          version="${GITHUB_REF_NAME#v}"
+          for platform in linux_amd64 linux_arm64 darwin_amd64 darwin_arm64; do
+            test -f "dist/splunkctl_${version}_${platform}.tar.gz"
+          done
+          test -f "dist/splunkctl_${version}_windows_amd64.zip"
+          test "$(find dist -maxdepth 1 -name '*.tar.gz' -type f | wc -l | tr -d ' ')" = "4"
+          test "$(find dist -maxdepth 1 -name '*.zip' -type f | wc -l | tr -d ' ')" = "1"
 
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo splunk/splunkctl \
+            --verify-tag \
             --title "splunkctl ${GITHUB_REF_NAME}" \
             --generate-notes
