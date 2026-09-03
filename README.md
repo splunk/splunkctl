@@ -4,6 +4,8 @@
 
 Welcome to `splunkctl`, a lightweight, agent-native CLI for managing Splunk through its REST API. It covers the full Splunk command surface — indexes, users, search, clustering, and more — with commands generated directly from the REST API definition, plus hand-written overrides where an operation needs multi-step logic (search, KV store data, etc.).
 
+> **splunkctl is experimental.** It isn't covered by existing Splunk support contracts. Review [Support](#support) before using it.
+
 ## Quickstart 🚀
 
 Get up and running in seconds:
@@ -21,6 +23,32 @@ go build -o splunkctl .
 Then point it at a Splunk instance (see [Configuration](#configuration) below).
 
 ## Install (standalone) 📦
+
+For most users, download a ready-to-use binary from the
+[GitHub Releases](https://github.com/splunk/splunkctl/releases) page. Go is not
+needed to use a release binary.
+
+Supported platforms:
+
+| Platform | Archive |
+|---|---|
+| Linux x86_64 | `linux_amd64` |
+| Linux ARM64 | `linux_arm64` |
+| macOS Intel | `darwin_amd64` |
+| macOS Apple Silicon | `darwin_arm64` |
+| Windows x86_64 | `windows_amd64` |
+
+On Linux or macOS, download the matching `.tar.gz` file, then run:
+
+```bash
+tar -xzf splunkctl_<version>_<platform>.tar.gz
+sudo install splunkctl /usr/local/bin/splunkctl
+```
+
+On Windows, download and extract the matching `.zip` file, then put
+`splunkctl.exe` in a folder on your `PATH`.
+
+To build from source instead:
 
 ```bash
 go install github.com/splunk/splunkctl@latest
@@ -225,6 +253,21 @@ generate a new one (see [Configuration](#configuration)).
 
 Tested in CI against Splunk 10.4.0 and 10.4.2.
 
+### Release process
+
+GitLab is the source of truth. GitHub `main` is updated only by the reviewed
+GitLab publication pipeline. To make a release:
+
+1. Change `version` in `VERSION` in GitLab and merge the change to GitLab
+   `main`.
+2. Run the publication job from protected GitLab `main` and wait for its GitHub
+   pull request to be reviewed and merged.
+3. Create the matching tag `v<version>` on GitHub `main`, for example `v0.1.0`.
+4. GitHub Actions checks the tag and publishes the release archives.
+
+The release workflow refuses tags whose version does not match `VERSION` or
+whose commit is not on GitHub `main`. Do not tag a feature branch.
+
 ## Contribution 🥰
 
 Found a bug or have an idea for improving splunkctl? Open a branch, make
@@ -237,8 +280,16 @@ Maintainers: [@gmeghan14](https://github.com/gmeghan14) and [@shruti148](https:/
 
 ### Support
 
-Support channels for splunkctl are still being finalized. In the meantime,
-reach out to a maintainer directly (see [Contribution](#contribution) above).
+The commands in this repository are experimental and are not covered by
+existing Splunk support contracts.
+
+GitHub pull requests are not accepted for this repository.
+
+For help with supported Splunk products, see [Working with Splunk Support](https://www.splunk.com/support).
+Splunk Support cases do not provide support for these experimental commands.
+
+Questions about splunkctl itself can be directed to the `splunkctl-support`
+team.
 
 ## License 📜
 

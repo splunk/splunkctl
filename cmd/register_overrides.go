@@ -101,4 +101,8 @@ func init() {
 	// resync_destructive and the generated version sends neither.
 	generated.ShclusterReplicatedConfigCmd.RemoveCommand(generated.ShclusterReplicatedConfigResyncCmd)
 	generated.ShclusterReplicatedConfigCmd.AddCommand(override.ShclusterReplicatedConfigResyncCmd)
+	// Replace generated shcluster-member remove with the override that uses
+	// POST instead of DELETE; the remove_server custom action requires POST.
+	generated.ShclusterMemberCmd.RemoveCommand(generated.ShclusterMemberRemoveCmd)
+	generated.ShclusterMemberCmd.AddCommand(override.ShclusterMemberRemoveCmd)
 }
