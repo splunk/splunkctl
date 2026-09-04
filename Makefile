@@ -1,4 +1,4 @@
-.PHONY: build test generate-integration generate-integration-local test-integration test-integration-local fmt fmt-check generate clean
+.PHONY: build build-runner test generate-integration generate-integration-local test-integration test-integration-local fmt fmt-check generate clean
 
 include VERSION
 
@@ -26,7 +26,8 @@ build:
 
 package: build
 	cp VERSION $(BUILD_PATH)/VERSION
-	cd $(BUILD_PATH) && tar -czf $(APP_NAME)_$(version)_$(COMMIT).tar.gz $(APP_NAME) VERSION
+	cp LICENSE $(BUILD_PATH)/LICENSE
+	cd $(BUILD_PATH) && tar -czf $(APP_NAME)_$(version)_$(COMMIT).tar.gz $(APP_NAME) VERSION LICENSE
 
 test:
 	go test -coverprofile=coverage.out ./...
@@ -40,7 +41,7 @@ test-integration:
 		--cmd "$(INTEGRATION_CMD)" \
 		--binary "$(SPLUNKCTL_BIN)"
 
-test-integration-local: build
+test-integration-local: build-runner
 	@set -e; \
 	config_file="$$(mktemp)"; \
 	trap 'rm -f "$$config_file"' EXIT; \

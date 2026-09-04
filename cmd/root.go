@@ -52,6 +52,18 @@ Connection (flag → env var → ~/.splunkctl/config.yaml):
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		// The command-line flags have been read by this point. Create one function
+		// that will allow or reject writes using the --yes and --read-only values.
+		writeCheck, err := newWriteCheck(cmd)
+		if err != nil {
+			return err
+		}
+
+		// Commands such as "config set" and "skill install" write local files and
+		// never call the REST client. Store the function on the command so those
+		// commands can call it directly before changing a file.
+		cmd.SetContext(cmdctx.WithWriteCheck(cmd.Context(), writeCheck))
+
 		if cmd.Annotations[annotationNoClient] == "true" {
 			return nil
 		}
@@ -59,7 +71,10 @@ Connection (flag → env var → ~/.splunkctl/config.yaml):
 		if err != nil {
 			return err
 		}
-		c := client.New(cfg)
+
+		// Give the same function to the REST client. Before the client sends a
+		// POST, PUT, PATCH, DELETE, or other non-read request, it calls this function.
+		c := client.NewWithWriteCheck(cfg, writeCheck)
 		cmd.SetContext(cmdctx.WithClient(cmd.Context(), c))
 		return nil
 	},
@@ -77,6 +92,10 @@ func Execute() {
 // CLI exit codes: 0=success; errorToCode emits 1=general/usage fallback,
 // 3=not found, 4=auth error, and 5=connection error. 2 is reserved and unused.
 func errorToCode(err error) (string, int) {
+	var safetyErr *writeSafetyError
+	if errors.As(err, &safetyErr) {
+		return safetyErr.code, 1
+	}
 	var splunkErr *client.SplunkError
 	if errors.As(err, &splunkErr) {
 		switch splunkErr.Code {
@@ -108,4 +127,6 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&flagInsecure, "insecure", false, "Skip TLS certificate verification")
 	rootCmd.PersistentFlags().StringArray("param", nil, "Extra Splunk API parameter as key=value (repeatable, e.g. --param frozenTimePeriodInSecs=2592000)")
 	rootCmd.PersistentFlags().Bool("describe", false, "Show available --param keys for this command (required and optional) then exit")
+	rootCmd.PersistentFlags().Bool(flagYesName, false, "Skip write confirmation")
+	rootCmd.PersistentFlags().Bool(flagReadOnlyName, false, "Block operations that can modify state")
 }

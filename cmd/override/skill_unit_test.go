@@ -3,11 +3,14 @@ package override
 import (
 	"bytes"
 	"context"
+	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/splunk/splunkctl/internal/cmdctx"
 )
 
 func TestRunSkillList_NoneInstalled(t *testing.T) {
@@ -129,4 +132,48 @@ func TestResolveScope_DefaultToLocal(t *testing.T) {
 	if got != "local" {
 		t.Errorf("got %q, want %q", got, "local")
 	}
+}
+
+func newSkillMutationTestCommand(ctx context.Context) *cobra.Command {
+	cmd := &cobra.Command{}
+	cmd.Flags().String("agent", "codex", "")
+	cmd.Flags().Bool("global", true, "")
+	cmd.Flags().Bool("local", false, "")
+	cmd.Flags().Bool("interactive", false, "")
+	cmd.SetContext(ctx)
+	return cmd
+}
+
+func TestSkillMutationsCheckBeforeFilesystemChange(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	denied := errors.New("denied")
+	ctx := cmdctx.WithWriteCheck(context.Background(), func(context.Context) error { return denied })
+	target := filepath.Join(home, ".agents", "skills", "splunkctl", "SKILL.md")
+
+	t.Run("install", func(t *testing.T) {
+		err := runSkillInstall(newSkillMutationTestCommand(ctx), nil)
+		if !errors.Is(err, denied) {
+			t.Fatalf("error = %v, want denied", err)
+		}
+		if _, err := os.Stat(target); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("skill file was created: %v", err)
+		}
+	})
+
+	t.Run("remove", func(t *testing.T) {
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(target, []byte("test"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		err := runSkillRemove(newSkillMutationTestCommand(ctx), nil)
+		if !errors.Is(err, denied) {
+			t.Fatalf("error = %v, want denied", err)
+		}
+		if _, err := os.Stat(target); err != nil {
+			t.Fatalf("skill file was removed: %v", err)
+		}
+	})
 }

@@ -71,6 +71,12 @@ first staged in $SPLUNK_HOME/var/run/splunk/lookup_tmp, then registered via REST
 		if err != nil {
 			return fmt.Errorf("reading file: %w", err)
 		}
+		// This command changes state twice: it creates a local staging file and then
+		// sends a POST to Splunk. Check before creating the file. The client checks
+		// the POST too, but reuses the first answer instead of prompting again.
+		if err := cmdctx.CheckWrite(cmd.Context()); err != nil {
+			return err
+		}
 
 		// Stage the file in Splunk's lookup_tmp directory.
 		stagingDir := filepath.Join(splunkHome, "var", "run", "splunk", "lookup_tmp")
