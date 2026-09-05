@@ -2,6 +2,7 @@ package cmdctx_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -33,6 +34,18 @@ func TestClientFrom_PanicsWhenMissing(t *testing.T) {
 		}
 	}()
 	cmdctx.ClientFrom(cmd)
+}
+
+func TestWriteCheck(t *testing.T) {
+	if err := cmdctx.CheckWrite(context.Background()); err == nil {
+		t.Fatal("CheckWrite without a check returned nil")
+	}
+
+	denied := errors.New("denied")
+	ctx := cmdctx.WithWriteCheck(context.Background(), func(context.Context) error { return denied })
+	if err := cmdctx.CheckWrite(ctx); !errors.Is(err, denied) {
+		t.Fatalf("CheckWrite returned %v, want denied", err)
+	}
 }
 
 func newParamCmd(params ...string) *cobra.Command {

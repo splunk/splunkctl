@@ -40,6 +40,7 @@ claude
 
 Paste these prompts one at a time into your Claude Code session.
 Each one exercises a different part of the CLI. Watch Claude discover and run the right command.
+When a write returns `CONFIRMATION_REQUIRED`, Claude should describe the operation and non-sensitive target without exposing credentials or payloads, ask you to approve it, and rerun it with `--yes` only after you agree.
 
 ---
 

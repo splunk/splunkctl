@@ -1,130 +1,31 @@
-name: Release
+name: Verify GitLab release
 
 on:
-  push:
-    tags:
-      - "v*"
+  release:
+    types: [published]
 
 permissions:
   contents: read
 
 jobs:
-  package:
-    name: Package ${{ matrix.platform }}
+  verify:
+    name: Verify release assets
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: linux_amd64
-            goos: linux
-            goarch: amd64
-            binary: splunkctl
-          - platform: linux_arm64
-            goos: linux
-            goarch: arm64
-            binary: splunkctl
-          - platform: darwin_amd64
-            goos: darwin
-            goarch: amd64
-            binary: splunkctl
-          - platform: darwin_arm64
-            goos: darwin
-            goarch: arm64
-            binary: splunkctl
-          - platform: windows_amd64
-            goos: windows
-            goarch: amd64
-            binary: splunkctl.exe
     steps:
-      - name: Check out reviewed source
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Verify reviewed release tag
+      - name: Check GitLab release assets
         shell: bash
-        run: |
-          set -euo pipefail
-          version="$(sed -n 's/^version[[:space:]]*=[[:space:]]*//p' VERSION | head -n1)"
-          test -n "$version"
-          test "$GITHUB_REF_NAME" = "v${version}"
-          git fetch --no-tags origin main
-          tag_commit="$(git rev-list -n 1 "$GITHUB_REF_NAME")"
-          git merge-base --is-ancestor "$tag_commit" "origin/main"
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Build release package
-        shell: bash
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: "0"
-        run: |
-          set -euo pipefail
-          version="$(sed -n 's/^version[[:space:]]*=[[:space:]]*//p' VERSION | head -n1)"
-          commit="$(git rev-parse --short HEAD)"
-          mkdir -p dist package
-          make package BUILD_PATH=package APP_NAME="${{ matrix.binary }}"
-          package_file="package/${{ matrix.binary }}_${version}_${commit}.tar.gz"
-          test -f "$package_file"
-          asset_base="splunkctl_${version}_${{ matrix.platform }}"
-          if [ "${{ matrix.goos }}" = "windows" ]; then
-            (
-              cd package
-              zip -q "../dist/${asset_base}.zip" "${{ matrix.binary }}" VERSION
-            )
-            test -f "dist/${asset_base}.zip"
-          else
-            mv "$package_file" "dist/${asset_base}.tar.gz"
-            test -f "dist/${asset_base}.tar.gz"
-          fi
-
-      - name: Upload package archives
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-${{ matrix.platform }}
-          path: dist/*
-          if-no-files-found: error
-          retention-days: 7
-
-  publish:
-    name: Publish GitHub release
-    needs: package
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Download package archives
-        uses: actions/download-artifact@v4
-        with:
-          pattern: release-*
-          path: dist
-          merge-multiple: true
-
-      - name: Check release archives
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
-          for platform in linux_amd64 linux_arm64 darwin_amd64 darwin_arm64; do
-            test -f "dist/splunkctl_${version}_${platform}.tar.gz"
-          done
-          test -f "dist/splunkctl_${version}_windows_amd64.zip"
-          test "$(find dist -maxdepth 1 -name '*.tar.gz' -type f | wc -l | tr -d ' ')" = "4"
-          test "$(find dist -maxdepth 1 -name '*.zip' -type f | wc -l | tr -d ' ')" = "1"
-
-      - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/* \
-            --repo splunk/splunkctl \
-            --verify-tag \
-            --title "splunkctl ${GITHUB_REF_NAME}" \
-            --generate-notes
+          set -euo pipefail
+          tag="$(jq -r '.release.tag_name' "$GITHUB_EVENT_PATH")"
+          test -n "$tag"
+          assets="$(gh release view "$tag" --repo splunk/splunkctl --json assets --jq '.assets[].name')"
+          for asset in \
+            "splunkctl_${tag#v}_linux_amd64.tar.gz" \
+            "splunkctl_${tag#v}_linux_arm64.tar.gz" \
+            "splunkctl_${tag#v}_darwin_amd64.tar.gz" \
+            "splunkctl_${tag#v}_darwin_arm64.tar.gz" \
+            "splunkctl_${tag#v}_windows_amd64.zip"; do
+            printf '%s\n' "$assets" | grep -Fx "$asset" >/dev/null
+          done

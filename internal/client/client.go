@@ -24,13 +24,15 @@ type Request struct {
 	Output string // "json" | "table" | "text" — passed to output renderer, not used by client itself
 }
 
+// WriteCheck is the function called before an HTTP request that may change data.
+// It returns nil to allow the request or an error to stop it.
+type WriteCheck func(context.Context) error
+
 type Client struct {
 	cfg        *config.Config
 	httpClient *http.Client
+	writeCheck WriteCheck
 }
-
-// HTTPClient returns the underlying http.Client for callers that need raw HTTP access.
-func (c *Client) HTTPClient() *http.Client { return c.httpClient }
 
 // Host returns the base Splunk URL (e.g. https://host:8089) without trailing slash.
 func (c *Client) Host() string { return strings.TrimRight(c.cfg.Host, "/") }
@@ -54,9 +56,9 @@ func (c *Client) RawDoJSON(ctx context.Context, method, path string, payload any
 	req.Header.Set("Authorization", "Bearer "+c.cfg.Token)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
-		return nil, 0, fmt.Errorf("connection error: %w", err)
+		return nil, 0, err
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(resp.Body)
@@ -86,23 +88,62 @@ func (c *Client) RawDoAbs(ctx context.Context, method, path string, body url.Val
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
-		return nil, 0, fmt.Errorf("connection error: %w", err)
+		return nil, 0, err
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(resp.Body)
 	return data, resp.StatusCode, err
 }
 
+// New creates a client without a write check. The splunkctl root command uses
+// NewWithWriteCheck instead so CLI writes honor --yes and --read-only.
 func New(cfg *config.Config) *Client {
+	return NewWithWriteCheck(cfg, nil)
+}
+
+// NewWithWriteCheck saves check in the Client. All client request functions
+// eventually call c.do, which runs this check before sending a write request.
+func NewWithWriteCheck(cfg *config.Config, check WriteCheck) *Client {
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: cfg.Insecure},
 	}
-	return &Client{cfg: cfg, httpClient: &http.Client{
-		Transport: transport,
-		Timeout:   30 * time.Second,
-	}}
+	return &Client{
+		cfg:        cfg,
+		writeCheck: check,
+		httpClient: &http.Client{
+			Transport: transport,
+			Timeout:   30 * time.Second,
+		},
+	}
+}
+
+// DoHTTP lets commands send a custom HTTP request while still using the same
+// write check as the client's other request functions.
+func (c *Client) DoHTTP(req *http.Request) (*http.Response, error) {
+	return c.do(req)
+}
+
+func (c *Client) do(req *http.Request) (*http.Response, error) {
+	// This client treats GET, HEAD, and OPTIONS as read-only requests. POST, PUT,
+	// PATCH, DELETE, and any other method may change data, so they require the check.
+	switch req.Method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+	default:
+		if c.writeCheck != nil {
+			// Ask for permission before httpClient.Do sends anything over the network.
+			// Returning an error here guarantees the rejected request never reaches Splunk.
+			if err := c.writeCheck(req.Context()); err != nil {
+				return nil, err
+			}
+		}
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("connection error: %w", err)
+	}
+	return resp, nil
 }
 
 func (c *Client) Do(ctx context.Context, req Request) ([]map[string]any, error) {
@@ -149,9 +190,9 @@ func (c *Client) Do(ctx context.Context, req Request) ([]map[string]any, error) 
 
 	httpReq.Header.Set("Authorization", "Bearer "+c.cfg.Token)
 
-	resp, err := c.httpClient.Do(httpReq)
+	resp, err := c.do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("connection error: %w", err)
+		return nil, err
 	}
 	defer resp.Body.Close()
 
@@ -190,9 +231,9 @@ func (c *Client) Upload(ctx context.Context, path, fieldName, fileName string, d
 	req.Header.Set("Authorization", "Bearer "+c.cfg.Token)
 	req.Header.Set("Content-Type", w.FormDataContentType())
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
-		return nil, fmt.Errorf("connection error: %w", err)
+		return nil, err
 	}
 	defer resp.Body.Close()
 	respBody, err := io.ReadAll(resp.Body)
@@ -218,9 +259,9 @@ func (c *Client) Describe(ctx context.Context, path string) (map[string]any, err
 	req.URL.RawQuery = q.Encode()
 	req.Header.Set("Authorization", "Bearer "+c.cfg.Token)
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
-		return nil, fmt.Errorf("connection error: %w", err)
+		return nil, err
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
@@ -266,9 +307,9 @@ func (c *Client) RawDo(ctx context.Context, method, path string, body url.Values
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
-		return nil, 0, fmt.Errorf("connection error: %w", err)
+		return nil, 0, err
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(resp.Body)

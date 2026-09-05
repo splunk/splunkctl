@@ -1,9 +1,10 @@
-.PHONY: build test generate-integration generate-integration-local test-integration test-integration-local fmt fmt-check generate clean
+.PHONY: build build-release build-runner test generate-integration generate-integration-local test-integration test-integration-local fmt fmt-check generate clean
 
 include VERSION
 
 APP_NAME     := splunkctl
 BUILD_PATH   := $(or $(CI_PROJECT_DIR),$(CURDIR))/bin
+RELEASE_BUILD_PATH := $(or $(CI_PROJECT_DIR),$(CURDIR))/artifacts/github-release/build
 OS       := $(shell uname -s | tr '[:upper:]' '[:lower:]')
 ARCH     := $(shell uname -m)
 PLATFORM := $(OS)_$(ARCH)
@@ -24,9 +25,20 @@ build:
 	mkdir -p $(BUILD_PATH)
 	go build -ldflags "-X github.com/splunk/splunkctl/cmd.Version=$(version) -X github.com/splunk/splunkctl/cmd.Commit=$(COMMIT) -X github.com/splunk/splunkctl/cmd.Built=$(BUILT)" -o $(BUILD_PATH)/$(APP_NAME) .
 
+build-release:
+	$(eval COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo none))
+	$(eval BUILT  := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ'))
+	mkdir -p $(RELEASE_BUILD_PATH)/linux_amd64 $(RELEASE_BUILD_PATH)/linux_arm64 $(RELEASE_BUILD_PATH)/darwin_amd64 $(RELEASE_BUILD_PATH)/darwin_arm64 $(RELEASE_BUILD_PATH)/windows_amd64
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-X github.com/splunk/splunkctl/cmd.Version=$(version) -X github.com/splunk/splunkctl/cmd.Commit=$(COMMIT) -X github.com/splunk/splunkctl/cmd.Built=$(BUILT)" -o $(RELEASE_BUILD_PATH)/linux_amd64/$(APP_NAME) .
+	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "-X github.com/splunk/splunkctl/cmd.Version=$(version) -X github.com/splunk/splunkctl/cmd.Commit=$(COMMIT) -X github.com/splunk/splunkctl/cmd.Built=$(BUILT)" -o $(RELEASE_BUILD_PATH)/linux_arm64/$(APP_NAME) .
+	GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-X github.com/splunk/splunkctl/cmd.Version=$(version) -X github.com/splunk/splunkctl/cmd.Commit=$(COMMIT) -X github.com/splunk/splunkctl/cmd.Built=$(BUILT)" -o $(RELEASE_BUILD_PATH)/darwin_amd64/$(APP_NAME) .
+	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "-X github.com/splunk/splunkctl/cmd.Version=$(version) -X github.com/splunk/splunkctl/cmd.Commit=$(COMMIT) -X github.com/splunk/splunkctl/cmd.Built=$(BUILT)" -o $(RELEASE_BUILD_PATH)/darwin_arm64/$(APP_NAME) .
+	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-X github.com/splunk/splunkctl/cmd.Version=$(version) -X github.com/splunk/splunkctl/cmd.Commit=$(COMMIT) -X github.com/splunk/splunkctl/cmd.Built=$(BUILT)" -o $(RELEASE_BUILD_PATH)/windows_amd64/$(APP_NAME).exe .
+
 package: build
 	cp VERSION $(BUILD_PATH)/VERSION
-	cd $(BUILD_PATH) && tar -czf $(APP_NAME)_$(version)_$(COMMIT).tar.gz $(APP_NAME) VERSION
+	cp LICENSE $(BUILD_PATH)/LICENSE
+	cd $(BUILD_PATH) && tar -czf $(APP_NAME)_$(version)_$(COMMIT).tar.gz $(APP_NAME) VERSION LICENSE
 
 test:
 	go test -coverprofile=coverage.out ./...
@@ -40,7 +52,7 @@ test-integration:
 		--cmd "$(INTEGRATION_CMD)" \
 		--binary "$(SPLUNKCTL_BIN)"
 
-test-integration-local: build
+test-integration-local: build-runner
 	@set -e; \
 	config_file="$$(mktemp)"; \
 	trap 'rm -f "$$config_file"' EXIT; \

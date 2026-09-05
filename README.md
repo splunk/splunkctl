@@ -127,6 +127,14 @@ splunkctl workload-rule add my_rule --predicate "app=search" --workload_pool hig
 splunkctl shcluster-maintenance-mode enable
 ```
 
+## Write safety
+
+`--read-only` blocks local state changes and HTTP methods that can modify Splunk before the effect occurs.
+`--yes` skips the write confirmation for the current invocation.
+Without either flag, an interactive terminal prompts once before the first write; a non-interactive caller receives `CONFIRMATION_REQUIRED`.
+`--read-only` takes precedence when both flags are present.
+The check is deliberately conservative, so a Splunk endpoint implemented with POST is blocked even when the command only reports status.
+
 ## Discover available commands 🔍
 
 Commands are organized into groups: **core** (shown in top-level `--help`),
@@ -149,6 +157,8 @@ splunkctl --help
 splunkctl index --help
 splunkctl user --help
 ```
+
+The `splunkctl` schema entry lists the global flags inherited by every command.
 
 ## Output formats 📄
 
@@ -180,6 +190,10 @@ splunkctl is designed to be progressively discoverable by AI agents:
 **Step 2 — Explore:** Run `splunkctl <object> --help` to see all operations on a resource.
 
 **Step 3 — Execute:** For structured resource commands, use `--output json` (or rely on automatic JSON mode when stdout is not a TTY) for machine-parseable output. For raw, fixed-format, interactive, or progress commands, follow the command's help.
+
+**Write approval:** When a command returns `CONFIRMATION_REQUIRED`, show the user a sanitized summary of the intended operation and its non-sensitive target, ask for approval, and rerun it with `--yes` only after the user agrees.
+Never expose credentials or sensitive payloads while requesting approval.
+Never remove `--read-only` or pipe confirmation input into the command.
 
 **Environment variables:** All connection flags have `SPLUNKCTL_*` env var equivalents. Agents can configure splunkctl without modifying files.
 
@@ -255,18 +269,34 @@ Tested in CI against Splunk 10.4.0 and 10.4.2.
 
 ### Release process
 
-GitLab is the source of truth. GitHub `main` is updated only by the reviewed
-GitLab publication pipeline. To make a release:
+GitLab is the source of truth. GitHub `main` is updated only by the validated
+GitLab publication pipeline. The build job cross-compiles the five release
+binaries once, and integration tests use the same Linux AMD64 binary that is
+later archived. To make a release:
 
 1. Change `version` in `VERSION` in GitLab and merge the change to GitLab
    `main`.
-2. Run the publication job from protected GitLab `main` and wait for its GitHub
-   pull request to be reviewed and merged.
-3. Create the matching tag `v<version>` on GitHub `main`, for example `v0.1.0`.
-4. GitHub Actions checks the tag and publishes the release archives.
+2. Create a protected GitLab tag `v<version>` at that `main` commit, for
+   example `v0.1.0`.
+3. Let `package:github` archive those exact binaries with `VERSION` and
+   `LICENSE`, and let `validate:github` verify each archive and the GitHub
+   source projection.
+4. Run the manual `update:github` job for that tag. GitLab creates the
+   tag-based GitHub branch `gitlab-release/<tag>` from the validated projection
+   and opens a PR into protected GitHub `main`.
+5. Run the manual `release:github` job for the same tag. It uploads the exact
+   archives built by GitLab and targets the same validated publication commit.
+6. Merge the publication PR when GitHub branch checks and approvals pass.
+7. GitHub Actions verifies that the five GitLab-built release assets are
+   present; it does not rebuild or publish them.
 
-The release workflow refuses tags whose version does not match `VERSION` or
-whose commit is not on GitHub `main`. Do not tag a feature branch.
+Configure `GITHUB_RELEASE_TOKEN` and `GITHUB_COMMIT_EMAIL` as protected masked
+GitLab CI/CD variables, and configure `GITHUB_SSH_PRIVATE_KEY` and
+`GITHUB_SSH_KNOWN_HOSTS` as protected file-type variables, all with environment
+scope `github-public`. The token needs GitHub repository Contents read/write and
+Pull requests read/write access. The validation job only reads the public
+GitHub repository and does not receive the release token; only the manual tag
+jobs can write to GitHub.
 
 ## Contribution 🥰
 
