@@ -21,6 +21,14 @@ Use this skill when the user asks to interact with Splunk through `splunkctl`.
 - For local dev Splunk, use `https://localhost:8089`. If TLS fails because of a self-signed certificate, retry with `--insecure`.
 - In sandboxed agent environments, loopback/network calls can fail with `operation not permitted`. If the command is necessary and in scope, request elevated execution and rerun the same command.
 
+## Write Safety
+
+- Use `--read-only` when the requested workflow must not change local or Splunk state.
+- If a command returns `CONFIRMATION_REQUIRED`, give the user a sanitized operation summary and non-sensitive target, then rerun it with `--yes` only after approval.
+- Never expose credentials or sensitive payloads while requesting approval.
+- Treat `READ_ONLY` as a hard stop and never remove the flag or pipe confirmation input into the command.
+- Approval applies only to the operation the user approved.
+
 ## Discovery
 
 Do cheap discovery before choosing a command:

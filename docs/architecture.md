@@ -10,7 +10,7 @@ github.com/splunk/splunkctl/cmd/override     hand-written commands: search, jobs
 github.com/splunk/splunkctl/internal/client  Splunk REST HTTP client
 github.com/splunk/splunkctl/internal/config  Viper layered config
 github.com/splunk/splunkctl/internal/output  output renderer (json/table/text)
-github.com/splunk/splunkctl/internal/cmdctx  shared context key (import cycle breaker)
+github.com/splunk/splunkctl/internal/cmdctx  shared command context bridge
 github.com/splunk/splunkctl/codegen          XML → Go code generator (standalone binary)
 ```
 
@@ -22,9 +22,10 @@ user invokes: splunkctl index list
 1. main.go → cmd.Execute()
 2. Cobra routes to IndexListCmd (in cmd/generated/index.go)
 3. PersistentPreRunE (cmd/root.go):
+     - creates one invocation-scoped write check from `--yes` and `--read-only`
      - config.Resolve(flagHost, flagToken, insecure, output)
        reads: flag → SPLUNKCTL_HOST/TOKEN env → ~/.splunkctl/config.yaml
-     - client.New(cfg) — creates http.Client with 30s timeout, optional TLS skip-verify
+     - client.NewWithWriteCheck(cfg, check) - creates http.Client with 30s timeout, optional TLS skip-verify
      - cmdctx.WithClient(cmd.Context(), c) — stores client in context
 4. RunE (generated):
      - cmdctx.ClientFrom(cmd) — retrieves client from context
@@ -59,6 +60,12 @@ Viper is initialized once in `config.Init()` (called from `cmd.init()`). The `Re
 - `RawDo(ctx, method, path, body) ([]byte, int, error)` — for override commands that need raw bytes (search job polling, results streaming). Path gets `/services` prefix.
 - `RawDoAbs(ctx, method, path, body) ([]byte, int, error)` — for absolute paths (e.g. `/servicesNS/...`). No prefix added.
 - `RawDoJSON(ctx, method, path, payload) ([]byte, int, error)` — POST/PUT with a JSON body.
+- `DoHTTP(req) (*http.Response, error)` - for caller-built requests that still need the common client boundary.
+
+All client request methods converge on one private send function.
+It allows GET, HEAD, and OPTIONS directly and runs the invocation's write check before any other HTTP method reaches the network.
+The same once-only check runs before the four local mutation flows: config writes, skill installation/removal, and lookup-file staging.
+New local mutation code must call `cmdctx.CheckWrite` immediately before its first effect.
 
 ID handling in `Do`: when `Request.ID` is non-empty, it is `url.PathEscape`d and appended to the trimmed path. Slashes in IDs (e.g. monitor input `/var/log/`) become `%2F`.
 
@@ -127,7 +134,7 @@ Cobra `Annotations` map keys used:
 
 | Key | Value | Effect |
 |---|---|---|
-| `"no_client"` | `"true"` | `PersistentPreRunE` skips client init (for `version`, `schema`, `config`, `skill`) |
+| `"no_client"` | `"true"` | `PersistentPreRunE` skips client initialization but still installs write safety (for `version`, `schema`, `config`, `skill`) |
 | `"offline_ok"` | `"true"` | Set by codegen on XML items with `<offline_ok/>` — informational only, not enforced |
 | `"describe_path"` | REST path | Path used by `cmdctx.RunDescribe` when `--describe` flag is set |
 
@@ -142,6 +149,7 @@ Cobra `Annotations` map keys used:
 | 4 | AUTH_ERROR (HTTP 401/403) |
 | 5 | CONNECTION_ERROR (host unreachable, TLS failure) |
 
-Mapped in `cmd/root.go:errorToCode()` by type-asserting on `*client.SplunkError`.
+Mapped in `cmd/root.go:errorToCode()` from typed client and write-safety errors.
+Write-safety errors use exit 1 with a specific JSON code such as `READ_ONLY` or `CONFIRMATION_REQUIRED`.
 
 Changing usage failures to exit 2 would be an intentional compatibility change requiring scoped implementation, tests, and documentation; it is not the current behavior.

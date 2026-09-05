@@ -2,6 +2,7 @@ package client_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -219,11 +220,88 @@ func TestClient_RawDoJSON_SendsJSONBody(t *testing.T) {
 	}
 }
 
-func TestClient_HTTPClient_IsNotNil(t *testing.T) {
-	cfg := &config.Config{Host: "https://splunk:8089", Token: "tok", Insecure: true}
-	c := client.New(cfg)
-	if c.HTTPClient() == nil {
-		t.Error("expected HTTPClient to be non-nil")
+func TestClient_WriteCheckUsesHTTPMethod(t *testing.T) {
+	for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
+		t.Run(method, func(t *testing.T) {
+			requests := 0
+			srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests++
+			}))
+			defer srv.Close()
+
+			checked := 0
+			denied := errors.New("denied")
+			c := client.NewWithWriteCheck(
+				&config.Config{Host: srv.URL, Token: "tok", Insecure: true},
+				func(context.Context) error {
+					checked++
+					return denied
+				},
+			)
+			req, err := http.NewRequestWithContext(context.Background(), method, srv.URL, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, err := c.DoHTTP(req)
+
+			safe := method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions
+			if safe {
+				if err != nil {
+					t.Fatal(err)
+				}
+				resp.Body.Close()
+				if checked != 0 || requests != 1 {
+					t.Fatalf("checked=%d requests=%d, want 0 and 1", checked, requests)
+				}
+				return
+			}
+
+			if !errors.Is(err, denied) {
+				t.Fatalf("error = %v, want denied", err)
+			}
+			if checked != 1 || requests != 0 {
+				t.Fatalf("checked=%d requests=%d, want 1 and 0", checked, requests)
+			}
+		})
+	}
+}
+
+func TestClient_WriteCheckCoversRequestAPIs(t *testing.T) {
+	denied := errors.New("denied")
+	c := client.NewWithWriteCheck(
+		&config.Config{Host: "https://splunk.invalid", Token: "tok"},
+		func(context.Context) error { return denied },
+	)
+
+	tests := map[string]func() error{
+		"Do": func() error {
+			_, err := c.Do(context.Background(), client.Request{Method: http.MethodPost, Path: "/test"})
+			return err
+		},
+		"RawDo": func() error {
+			_, _, err := c.RawDo(context.Background(), http.MethodPost, "/test", nil)
+			return err
+		},
+		"RawDoAbs": func() error {
+			_, _, err := c.RawDoAbs(context.Background(), http.MethodPost, "/test", nil)
+			return err
+		},
+		"RawDoJSON": func() error {
+			_, _, err := c.RawDoJSON(context.Background(), http.MethodPost, "/test", map[string]string{"key": "value"})
+			return err
+		},
+		"Upload": func() error {
+			_, err := c.Upload(context.Background(), "/test", "file", "test.txt", []byte("data"))
+			return err
+		},
+	}
+
+	for name, call := range tests {
+		t.Run(name, func(t *testing.T) {
+			if err := call(); !errors.Is(err, denied) {
+				t.Fatalf("error = %v, want denied", err)
+			}
+		})
 	}
 }
 
