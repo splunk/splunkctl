@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/splunk/splunkctl/internal/cmdctx"
 	"github.com/splunk/splunkctl/internal/output"
 )
 
@@ -174,6 +175,11 @@ func runSkillInstall(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	// Installing a skill creates a directory and a SKILL.md file on this computer.
+	// It does not send an HTTP request, so check permission before creating them.
+	if err := cmdctx.CheckWrite(cmd.Context()); err != nil {
+		return err
+	}
 
 	for _, t := range targets {
 		if err := os.MkdirAll(t.Dir, 0755); err != nil {
@@ -259,6 +265,11 @@ func runSkillRemove(cmd *cobra.Command, args []string) error {
 
 	targets, err := resolveTargets(agent, scope)
 	if err != nil {
+		return err
+	}
+	// Removing a skill deletes a local SKILL.md file and possibly its empty directory.
+	// It does not send an HTTP request, so check permission before deleting either.
+	if err := cmdctx.CheckWrite(cmd.Context()); err != nil {
 		return err
 	}
 

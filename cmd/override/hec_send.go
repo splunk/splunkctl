@@ -82,8 +82,9 @@ var hecSendCmd = &cobra.Command{
 		req.Header.Set("Authorization", "Splunk "+token)
 		req.Header.Set("Content-Type", "application/json")
 
-		httpClient := cmdctx.ClientFrom(cmd).HTTPClient()
-		resp, err := httpClient.Do(req)
+		// HEC needs this custom request because it uses a different port and token.
+		// DoHTTP still runs the shared write check before sending the POST.
+		resp, err := cmdctx.ClientFrom(cmd).DoHTTP(req)
 		if err != nil {
 			return fmt.Errorf("hec send: %w", err)
 		}

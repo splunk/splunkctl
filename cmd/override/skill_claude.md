@@ -44,6 +44,14 @@ splunkctl config set token your-token
 # Config stored in ~/.splunkctl/config.yaml (0600 permissions, never commit to git)
 ```
 
+## Write Safety
+
+- Use `--read-only` when the requested workflow must not change local or Splunk state.
+- If a command returns `CONFIRMATION_REQUIRED`, give the user a sanitized operation summary and non-sensitive target, then rerun it with `--yes` only after approval.
+- Never expose credentials or sensitive payloads while requesting approval.
+- Treat `READ_ONLY` as a hard stop and never remove the flag or pipe confirmation input into the command.
+- Approval applies only to the operation the user approved.
+
 ## Discovery Workflow
 
 Start with discovery to avoid blind guessing:
@@ -210,6 +218,8 @@ splunkctl health list --output json
 | `--insecure` | — | false | Skip TLS verification (local dev only) |
 | `--param key=val` | — | — | Pass extra REST API parameters (repeatable) |
 | `--describe` | — | false | Show available parameters for a resource (no mutation) |
+| `--yes` | - | false | Skip write confirmation for this invocation |
+| `--read-only` | - | false | Block operations that can modify state |
 
 ## Troubleshooting
 

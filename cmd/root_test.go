@@ -46,3 +46,11 @@ func TestErrorToCode_UsageError(t *testing.T) {
 		t.Errorf("got (%s, %d), want (USAGE_ERROR, 1)", code, exit)
 	}
 }
+
+func TestErrorToCode_WriteSafetyError(t *testing.T) {
+	err := &writeSafetyError{code: "READ_ONLY", message: "blocked"}
+	code, exit := errorToCode(err)
+	if code != "READ_ONLY" || exit != 1 {
+		t.Errorf("got (%s, %d), want (READ_ONLY, 1)", code, exit)
+	}
+}
