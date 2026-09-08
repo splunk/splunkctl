@@ -11,7 +11,8 @@ import (
 	"github.com/spf13/pflag"
 )
 
-// CommandInfo is the schema entry for a single command.
+// CommandInfo describes one item in the schema output. Most items describe a
+// runnable command; the top-level item describes flags shared by all commands.
 type CommandInfo struct {
 	Command  string     `json:"command"`
 	Group    string     `json:"group"`
@@ -39,7 +40,8 @@ An LLM agent can run this once to bootstrap its knowledge of splunkctl.
 
 Use --compact to get a smaller payload (names and types only, no help text).
 Use --groups to list available group names.
-Use --group <name> to filter to a specific group.`,
+Use --group <name> to filter to a specific group.
+The splunkctl entry lists global flags inherited by every command.`,
 	Annotations: map[string]string{
 		annotationNoClient: "true",
 	},
@@ -257,6 +259,40 @@ func collectCommands(cmd *cobra.Command, prefix string, out *[]CommandInfo) {
 		name = prefix + " " + cmd.Name()
 	}
 
+	// Flags such as --host, --token, --yes, and --read-only are defined once on
+	// the top-level "splunkctl" command and are available to every subcommand.
+	// Repeating them under every command would make the schema much larger, so
+	// record them once while visiting the top-level command.
+	if cmd == cmd.Root() {
+		info := CommandInfo{
+			Command: name,
+			Group:   "system",
+			Short:   "Global flags inherited by every command",
+		}
+
+		// Run this function once for each flag defined on the top-level command.
+		cmd.PersistentFlags().VisitAll(func(f *pflag.Flag) {
+			envName := ""
+			// Host and token may also be supplied through SPLUNKCTL_HOST and
+			// SPLUNKCTL_TOKEN. The other global flags do not have environment
+			// variable alternatives, so their Env value remains empty.
+			if f.Name == "host" || f.Name == "token" {
+				envName = "SPLUNKCTL_" + strings.ToUpper(f.Name)
+			}
+			info.Flags = append(info.Flags, FlagInfo{
+				Name:    f.Name,
+				Type:    f.Value.Type(),
+				Default: f.DefValue,
+				Usage:   f.Usage,
+				Env:     envName,
+			})
+		})
+
+		// Add the completed top-level entry to the schema result. The function
+		// continues below and visits the subcommands afterward.
+		*out = append(*out, info)
+	}
+
 	if cmd.Runnable() {
 		// extract object name: "splunkctl index list" → "index"
 		parts := strings.Fields(name)
@@ -272,7 +308,10 @@ func collectCommands(cmd *cobra.Command, prefix string, out *[]CommandInfo) {
 			Long:     cmd.Long,
 			Examples: cmd.Example,
 		}
-		cmd.Flags().VisitAll(func(f *pflag.Flag) {
+		// The global flags were already added above. For this command, include only
+		// flags defined directly on it. For example, "index add" includes --name
+		// here but does not repeat the global --yes flag.
+		cmd.NonInheritedFlags().VisitAll(func(f *pflag.Flag) {
 			envName := "SPLUNKCTL_" + strings.ToUpper(strings.ReplaceAll(f.Name, "-", "_"))
 			info.Flags = append(info.Flags, FlagInfo{
 				Name:    f.Name,

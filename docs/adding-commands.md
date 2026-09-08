@@ -141,12 +141,16 @@ Then follow [codegen.md](codegen.md) and commit the source and emitted object-fi
 **Output:** Use `output.Print(cmd.Context(), results, outFmt)` for structured resource and REST results. Raw or fixed-format responses, interactive prompts, and progress displays may intentionally use Cobra writers or an established terminal-specific path; tests must cover that output contract. Do not add direct process-stream writes unless an established special path requires them.
 
 **Client access:** Always call `cmdctx.ClientFrom(cmd)` (or the package-level `clientFrom(cmd)` shim in generated files). Never construct a new client inside a command.
+Use the client's request methods, including `DoHTTP` for a caller-built request, so unsafe HTTP methods pass through the shared write check.
 
 **Flag reads:** Read all flags inside `RunE`, not in package-level `init()`. This avoids global state issues in tests.
 
 **Context propagation:** Pass `cmd.Context()` to `c.Do()` and to `output.Print()`. Don't use `context.Background()`.
 
 **No-client commands:** Add `Annotations: map[string]string{"no_client": "true"}` for commands that don't need auth (version, schema, config, skill). Without this annotation, `PersistentPreRunE` will require `--host` and `--token`.
+
+**Local writes:** Call `cmdctx.CheckWrite(cmd.Context())` immediately before a command's first filesystem or other local state change.
+The invocation-scoped check prompts at most once, so a multi-step command must reuse the same command context throughout.
 
 **Error messages:** Return `fmt.Errorf("...")` with lowercase first word (Go convention). Don't print errors yourself — let `cmd.Execute()` → `errorToCode()` handle them.
 

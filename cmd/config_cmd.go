@@ -1,12 +1,14 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/splunk/splunkctl/internal/cmdctx"
 	"github.com/splunk/splunkctl/internal/output"
 	"gopkg.in/yaml.v3"
 )
@@ -33,7 +35,7 @@ var configSetCmd = &cobra.Command{
 		if key != "host" && key != "token" {
 			return fmt.Errorf("unknown config key %q: must be 'host' or 'token'", key)
 		}
-		return writeConfig(key, value)
+		return writeConfig(cmd.Context(), key, value)
 	},
 }
 
@@ -91,7 +93,7 @@ func readConfig() (map[string]string, error) {
 	return cfg, nil
 }
 
-func writeConfig(key, value string) error {
+func writeConfig(ctx context.Context, key, value string) error {
 	cfg, err := readConfig()
 	if err != nil {
 		return err
@@ -100,6 +102,11 @@ func writeConfig(key, value string) error {
 
 	path, err := configFilePath()
 	if err != nil {
+		return err
+	}
+	// This command writes directly to ~/.splunkctl/config.yaml and does not send
+	// an HTTP request. Check permission here before creating or changing that file.
+	if err := cmdctx.CheckWrite(ctx); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
