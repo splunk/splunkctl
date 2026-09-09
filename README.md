@@ -1,73 +1,50 @@
 # splunkctl
 
-[![pipeline status](https://cd.splunkdev.com/ai/splunkctl/badges/main/pipeline.svg)](https://cd.splunkdev.com/ai/splunkctl/-/commits/main)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/splunk/splunkctl)](go.mod)
+[![License](https://img.shields.io/github/license/splunk/splunkctl)](LICENSE)
+[![Latest Release](https://img.shields.io/github/v/release/splunk/splunkctl)](https://github.com/splunk/splunkctl/releases)
 
-Welcome to `splunkctl`, a lightweight, agent-native CLI for managing Splunk through its REST API. It covers the full Splunk command surface — indexes, users, search, clustering, and more — with commands generated directly from the REST API definition, plus hand-written overrides where an operation needs multi-step logic (search, KV store data, etc.).
+`splunkctl` is a command-line interface for operating Splunk over its REST API. It is built for callers that aren't people — AI agents, CI jobs, scheduled scripts — and works the same when a person runs it.
+
+Operating Splunk is mostly investigation: running searches, reading configuration, checking cluster state, working out why something behaves the way it does. A smaller part of it changes something. `splunkctl` treats those two differently. Investigation runs unattended. Change stops for a person.
 
 > **splunkctl is experimental.** It isn't covered by existing Splunk support contracts. Review [Support](#support) before using it.
 
-## Quickstart 🚀
+## What it covers
 
-Get up and running in seconds:
+`splunkctl` manages Splunk deployments across searches, indexes, users, apps, saved searches, lookups, KV Store, HTTP Event Collector, and cluster internals, including indexer and search-head operations. Its commands are generated from Splunk's REST API definitions rather than maintained as a limited, hand-picked set, so new API endpoints can become available as commands. Since everything runs through REST, nothing needs to be installed on the Splunk server, and the CLI works consistently from a laptop, CI pipeline, or container against any Splunk instance your credentials can access.
 
+## Installation 📦
+
+### Manual Download
+Download a ready-to-use binary from the [GitHub Releases](https://github.com/splunk/splunkctl/releases) page. Go is not needed to use a release binary.
+
+#### Linux or macOS:
 ```bash
-# Option A: run without installing
-go run . --help
-go run . version
-
-# Option B: build a binary
-go build -o splunkctl .
-./splunkctl --help
+# Make a dir and untar the folder contents
+mkdir splunkctl && tar -xzf splunkctl_<version>_<platform>.tar.gz -C splunkctl
+cd splunkctl 
+# Try running the binary now
+./splunkctl version
 ```
+**Note**: See [Troubleshooting Section](#troubleshooting-and-faqs-) for security issues with the downloaded binary on macOS 
 
-Then point it at a Splunk instance (see [Configuration](#configuration) below).
+#### Windows
+On Windows, download and extract the matching .zip file, then put splunkctl.exe in a folder on your PATH.
 
-## Install (standalone) 📦
-
-For most users, download a ready-to-use binary from the
-[GitHub Releases](https://github.com/splunk/splunkctl/releases) page. Go is not
-needed to use a release binary.
-
-Supported platforms:
-
-| Platform | Archive |
-|---|---|
-| Linux x86_64 | `linux_amd64` |
-| Linux ARM64 | `linux_arm64` |
-| macOS Intel | `darwin_amd64` |
-| macOS Apple Silicon | `darwin_arm64` |
-| Windows x86_64 | `windows_amd64` |
-
-On Linux or macOS, download the matching `.tar.gz` file, then run:
-
-```bash
-tar -xzf splunkctl_<version>_<platform>.tar.gz
-sudo install splunkctl /usr/local/bin/splunkctl
-```
-
-On Windows, download and extract the matching `.zip` file, then put
-`splunkctl.exe` in a folder on your `PATH`.
-
-To build from source instead:
-
-```bash
-go install github.com/splunk/splunkctl@latest
-```
-
-Or build from source:
-
-```bash
+### Build from source
+``` bash 
 git clone https://github.com/splunk/splunkctl
 cd splunkctl
 go build -o splunkctl .
 ```
+Once installation finishes, point it at a Splunk instance (see [Configure SplunkCTL](#configure-splunkctl) below).
 
-## Configuration ⚙️
+## Configure SplunkCTL ⚙️
 
-splunkctl requires a Splunk host and an API bearer token.
+`splunkctl` requires a Splunk host and an API bearer token.
 
 **Step 1 — Get a token**
-
 In Splunk Web: **Settings → Tokens → New Token**. Copy the token value.
 
 Or via Splunk CLI on the Splunk host:
@@ -75,9 +52,7 @@ Or via Splunk CLI on the Splunk host:
 splunk create-authtokens -name mytoken -user admin
 ```
 
-**Step 2 — Configure splunkctl**
-
-The easiest way is to save to the config file once:
+**Step 2 — Configure splunkctl** The easiest way is to save to the config file once:
 
 ```bash
 splunkctl config set host https://your-splunk-host:8089
@@ -129,11 +104,11 @@ splunkctl shcluster-maintenance-mode enable
 
 ## Write safety
 
-`--read-only` blocks local state changes and HTTP methods that can modify Splunk before the effect occurs.
-`--yes` skips the write confirmation for the current invocation.
-Without either flag, an interactive terminal prompts once before the first write; a non-interactive caller receives `CONFIRMATION_REQUIRED`.
-`--read-only` takes precedence when both flags are present.
-The check is deliberately conservative, so a Splunk endpoint implemented with POST is blocked even when the command only reports status.
+- Use `--read-only` to block local changes and Splunk API requests that could modify data.
+- Use `--yes` to skip the confirmation prompt for that command.
+- Without either flag, interactive terminals ask for confirmation before the first write. Non-interactive callers receive `CONFIRMATION_REQUIRED`.
+- If both flags are used, `--read-only` takes priority.
+- The check is intentionally strict. Even a POST endpoint that only reports status is blocked.
 
 ## Discover available commands 🔍
 
@@ -175,7 +150,7 @@ splunkctl index list --output json
 splunkctl index list --output table
 ```
 
-## For AI Agents 🤖
+## Working with AI Agent 🤖
 
 ### Skills: Using `splunkctl` CLI with AI Agents
 The splunkctl skill helps Claude Code and Codex choose the right CLI command for a plain-language Splunk task and summarize the result.
@@ -203,6 +178,25 @@ Never remove `--read-only` or pipe confirmation input into the command.
 ```json
 {"error": "index not found", "code": "NOT_FOUND"}
 ```
+
+## Running unattended
+
+An agent pointed at a stack can search, read index and app configuration, walk cluster state, and pull saved searches without clearing each step with someone. A diagnosis runs to the end.
+
+A command that would change something stops before it does:
+
+```bash
+$ splunkctl index disable prod_logs
+{"error":"write operation for \"splunkctl index disable\" requires confirmation; rerun with --yes after user approval","code":"CONFIRMATION_REQUIRED"}
+```
+
+The agent comes back with the change it intends and the target it resolved. Rerunning with `--yes` performs it.
+
+How that behaves:
+
+- Approval is given per run, on the command line. No environment variable or configuration setting substitutes for it.
+- `--read-only` blocks change outright and takes precedence over approval.
+- `splunkctl` makes no permission decisions of its own. A caller reaches what the token's owner can reach, and Splunk enforces and records it as that person.
 
 ## Repository structure 🗂️
 
@@ -259,55 +253,38 @@ make build
 
 ## Troubleshooting and FAQs 🩹
 
-**Token stopped working after a secret rotation?** Rotating a cluster's
+#### 1. macOS security and quarantine errors
+
+If macOS shows an error such as “cannot be opened because the developer cannot be verified,” try either of the following:
+
+- Remove the quarantine attribute for the binary obtained from the official GitHub release page:
+
+  ```bash
+  xattr -d com.apple.quarantine ./splunkctl
+  ```
+
+- Go to System Settings -> Privacy & Security -> scroll down, and click "Allow Anyway" next to the blocked splunkctl message, then try running it again.
+
+
+#### 2. Token stopped working after a secret rotation? 
+Rotating a cluster's
 `splunk.secret` invalidates existing bearer tokens across the cluster —
-generate a new one (see [Configuration](#configuration)).
+generate a new one (see [Configure SplunkCTL](#configure-splunkctl)).
 
 ### Compatibility ✅
 
 Tested in CI against Splunk 10.4.0 and 10.4.2.
 
-### Release process
+Supported platforms:
 
-GitLab is the source of truth. GitHub `main` is updated only by the validated
-GitLab publication pipeline. The build job cross-compiles the five release
-binaries once, and integration tests use the same Linux AMD64 binary that is
-later archived. To make a release:
+| Platform | Archive |
+|---|---|
+| Linux x86_64 | `linux_amd64` |
+| Linux ARM64 | `linux_arm64` |
+| macOS Intel | `darwin_amd64` |
+| macOS Apple Silicon | `darwin_arm64` |
+| Windows x86_64 | `windows_amd64` |
 
-1. Change `version` in `VERSION` in GitLab and merge the change to GitLab
-   `main`.
-2. Create a protected GitLab tag `v<version>` at a commit in GitLab `main`,
-   for example `v0.1.0`. Publication jobs reject a tag whose commit is not in
-   the current `main` history.
-3. Let `package:github` test and compile the exact GitHub source projection,
-   then archive the release binaries with `VERSION` and `LICENSE`. The
-   `validate:github` job verifies each archive and the GitHub source diff.
-4. Run the manual `update:github` job for that tag. GitLab creates the
-   tag-based GitHub branch `gitlab-release/<tag>` from the validated projection
-   and opens a PR into protected GitHub `main`.
-5. Run the manual `release:github` job for the same tag. It uploads the exact
-   archives built by GitLab and targets the same validated publication commit.
-6. Merge the publication PR when GitHub branch checks and approvals pass.
-7. GitHub Actions verifies that the five GitLab-built release assets are
-   present; it does not rebuild or publish them.
-
-Configure `GITHUB_RELEASE_TOKEN` and `GITHUB_COMMIT_EMAIL` as protected masked
-GitLab CI/CD variables, and configure `GITHUB_SSH_PRIVATE_KEY` and
-`GITHUB_SSH_KNOWN_HOSTS` as protected file-type variables, all with environment
-scope `github-public`. The token needs GitHub repository Contents read/write and
-Pull requests read/write access. The validation job only reads the public
-GitHub repository and does not receive the release token; only the manual tag
-jobs can write to GitHub.
-
-## Contribution 🥰
-
-Found a bug or have an idea for improving splunkctl? Open a branch, make
-focused commits, and make sure the required checks pass (see
-[Development](#development)) before submitting your change for review. See
-[Adding commands](docs/adding-commands.md) if you're adding or fixing a
-command.
-
-Maintainers: [@gmeghan14](https://github.com/gmeghan14) and [@shruti148](https://github.com/shruti148).
 
 ### Support
 
@@ -319,8 +296,8 @@ GitHub pull requests are not accepted for this repository.
 For help with supported Splunk products, see [Working with Splunk Support](https://www.splunk.com/support).
 Splunk Support cases do not provide support for these experimental commands.
 
-Questions about splunkctl itself can be directed to the `splunkctl-support`
-team.
+Questions about splunkctl itself can be directed to the
+[`splunkctl-support`](https://github.com/orgs/splunk/teams/splunkctl-support) team.
 
 ## License 📜
 

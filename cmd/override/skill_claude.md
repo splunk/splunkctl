@@ -46,11 +46,25 @@ splunkctl config set token your-token
 
 ## Write Safety
 
-- Use `--read-only` when the requested workflow must not change local or Splunk state.
-- If a command returns `CONFIRMATION_REQUIRED`, give the user a sanitized operation summary and non-sensitive target, then rerun it with `--yes` only after approval.
-- Never expose credentials or sensitive payloads while requesting approval.
-- Treat `READ_ONLY` as a hard stop and never remove the flag or pipe confirmation input into the command.
-- Approval applies only to the operation the user approved.
+- Treat every install, remove, enable, disable, create, update, delete, or other
+  state-changing command as a write. This includes local filesystem changes and
+  Splunk API requests that use a modifying HTTP method.
+- When the user asks for a read-only check or says not to change state, always
+  include `--read-only`. This flag blocks write operations before they happen.
+- Do not add `--yes` automatically. Without `--yes`, an interactive terminal
+  prompts once before the first write. A non-interactive agent receives the
+  `CONFIRMATION_REQUIRED` error instead of being allowed to write.
+- If `CONFIRMATION_REQUIRED` is returned, stop and show the user a sanitized
+  summary of the intended operation and its non-sensitive target. Ask for
+  explicit approval, then rerun the same operation with `--yes` only after the
+  user approves it.
+- `--yes` authorizes only the exact operation approved by the user and only for
+  that invocation. Ask again before running a different write or destructive
+  operation. Never expose credentials or sensitive payloads in the approval
+  request.
+- If both `--read-only` and `--yes` are present, `--read-only` wins. Treat a
+  `READ_ONLY` error as a hard stop: never remove the flag and never pipe
+  confirmation input into the command.
 
 ## Discovery Workflow
 

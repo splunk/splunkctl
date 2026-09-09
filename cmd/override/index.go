@@ -29,4 +29,7 @@ var IndexCleanCmd = &cobra.Command{
 
 func init() {
 	IndexCleanCmd.Flags().String("name", "", "index name (positional or --name)")
+
+	// Hidden from --help — not available via the REST API by design (see RunE above).
+	IndexCleanCmd.Hidden = true
 }

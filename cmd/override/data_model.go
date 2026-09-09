@@ -137,4 +137,8 @@ func init() {
 
 	dataModelAccelCmd.AddCommand(dataModelAccelShowCmd, dataModelAccelEnableCmd, dataModelAccelDisableCmd)
 	DataModelCmd.AddCommand(dataModelListCmd, dataModelAccelCmd)
+
+	// Hidden from --help — private (unshared) data models can't be accelerated,
+	// and there's no way to create a shareable custom data model via splunkctl.
+	dataModelAccelEnableCmd.Hidden = true
 }
