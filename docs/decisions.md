@@ -173,22 +173,3 @@ Remote operations are checked from the shared client immediately before any HTTP
 Local operations call the same invocation-scoped check immediately before their first state change.
 This avoids maintaining a command-name catalog and automatically covers new REST commands that use the client.
 The conservative HTTP rule can block a read-oriented Splunk endpoint implemented with POST; adding endpoint-name exceptions would weaken the simple fail-closed boundary.
-
-## GitLab is canonical; GitHub is an allowlisted projection
-
-Changes are reviewed and merged in GitLab. GitHub receives selected source and
-documentation paths through the GitLab pipeline; it is not a bidirectional Git
-mirror, so publication commits have different commit IDs from their GitLab
-sources.
-
-Packaging reads the committed Git objects,
-not mutable runner files. Validation produces a checksummed candidate and exact
-GitHub diff. Publishing is a serialized manual action from a protected GitLab
-tag, verifies both repositories have not moved, pushes the tag-specific
-`gitlab-release/<tag>` publication branch, and opens a PR into protected GitHub
-`main`.
-GitHub-only paths outside the managed roots are intentionally preserved.
-
-A native push mirror was rejected because it cannot publish only selected paths
-or keep private GitLab files out of the public repository. A bidirectional
-sync was rejected because it would create two competing sources of truth.

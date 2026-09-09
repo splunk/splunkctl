@@ -89,4 +89,7 @@ var introspectionDiskUsageCmd = &cobra.Command{
 
 func init() {
 	IntrospectionCmd.AddCommand(introspectionQueuesCmd, introspectionIndexerCmd, introspectionProcessorsCmd, introspectionDiskUsageCmd)
+
+	// Hidden from --help — endpoint returns 404 on this instance.
+	introspectionDiskUsageCmd.Hidden = true
 }

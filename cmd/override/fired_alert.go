@@ -64,4 +64,7 @@ func init() {
 	firedAlertListCmd.Flags().String("name", "", "filter to a specific saved search name")
 	firedAlertClearCmd.Flags().String("name", "", "saved search name (positional or --name)")
 	FiredAlertCmd.AddCommand(firedAlertListCmd, firedAlertClearCmd)
+
+	// Hidden from --help — reports a false error on success (needs a response-handling fix).
+	firedAlertClearCmd.Hidden = true
 }

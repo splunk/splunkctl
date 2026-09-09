@@ -450,58 +450,6 @@ CI (ORCA) runs integration tests the same way as locally, but some tests need a 
 
 The config YAML uses `${CI_TEST_APP_PATH:-$PWD/tests/resources/TestApp/test_app.tgz}` so both environments work without modification — see the `test_app_install_success` case in [the `app` example above](#example-the-app-integration-test). In CI, `orca_service.py` stages the archive onto the ORCA container via `scp` during the deployment phase so the file is present on the Splunk server before tests run.
 
-## GitHub publication tests
-
-The publication helper has hermetic tests that create temporary local Git
-repositories. They cover committed-blob packaging, exclusion enforcement,
-preservation of unmanaged GitHub files, publication to a non-protected branch,
-repeat no-op behavior, and artifact-tamper rejection:
-
-```bash
-go test ./cicd/tools/github-publication
-```
-
-In CI, the normal test jobs run the Go tests and static checks before `build`.
-That build cross-compiles all five release binaries, and integration tests use
-the exact Linux AMD64 release binary. After creating and secret-scanning the
-public candidate, `package:github` runs `go test ./...`, `go vet ./...`, and
-`CGO_ENABLED=0 go build ./...` from that exact projected tree. The verification
-build is discarded; the job archives only the prebuilt release binaries with
-`VERSION` and `LICENSE`. `validate:github` does not run Go commands: it checks
-each archive's member list, extracts it, compares every file byte-for-byte with
-the build artifacts, then compares the public candidate with GitHub `main`.
-
-Release build inputs and release archives are no longer re-uploaded by
-downstream jobs. The self-contained validation artifact contains only the
-candidate, its package and manifest JSON, the validation JSON, and
-`SHA256SUMS`.
-
-## GitHub public projection
-
-[github.com/splunk/splunkctl](https://github.com/splunk/splunkctl). GitHub-only
-paths outside the declared managed roots, such as repository settings under
-`.github/`, are preserved.
-
-The shared `build` job supplies the publication flow with prebuilt binaries and
-the publication helper. All four publication jobs exist only in protected `v*`
-tag pipelines, and packaging verifies that the tagged commit belongs to the
-current GitLab `main` history. The publication flow then has four jobs:
-
-1. `package:github` builds the allowlisted candidate from the committed GitLab
-   revision, scans, tests, vets, and compiles that exact candidate, and packages
-   the prebuilt release binaries with `VERSION` and `LICENSE`.
-2. `validate:github` checks the release archives against the exact build-stage
-   files, computes the exact source diff against GitHub `main`, and stores the
-   minimal checksummed publication inputs.
-3. `update:github` is a manual job available only for protected `v*` GitLab
-   tags whose commit is in the current GitLab `main` history. It rejects an
-   altered artifact or a GitLab/GitHub branch that moved after validation,
-   pushes the tag-specific `gitlab-release/<tag>` PR branch, and opens or
-   reuses a PR into GitHub `main`. GitHub `main` is never pushed directly.
-4. `release:github` is a manual job for the same protected `v*` tag. It
-   consumes the GitLab-built archives and the publication result from
-   `update:github`.
-
 # Override registration testing
 
 Several override commands added for recent clustering-command fixes have command-boundary tests that build a fresh Cobra tree around the override's own constructor, dispatch through `root.Execute()` with realistic args, and assert the actual outgoing HTTP request:
