@@ -16,6 +16,7 @@
 - [Integration Tests](#integration-tests)
   - [Overview](#overview)
   - [Structure](#structure)
+  - [Reusable expectation profiles](#reusable-expectation-profiles)
   - [Example: the `app` integration test](#example-the-app-integration-test)
   - [Writing a new integration test](#writing-a-new-integration-test)
   - [Step 1: Generate mode](#step-1-generate-mode)
@@ -289,7 +290,12 @@ func TestBuildGeneratedFile_PathTemplate(t *testing.T) {
 
 ## Overview
 
-Integration tests run the real, compiled `splunkctl` binary against a **live Splunk instance** and compare its actual output against a committed "golden" JSON file, using exact `reflect.DeepEqual` matching. They catch things unit tests can't: real REST API behavior, real authentication, and real end-to-end command output — at the cost of needing a reachable Splunk instance to run.
+Integration tests run the real, compiled `splunkctl` binary against a **live Splunk instance**. They catch things unit tests cannot: real REST API behavior, real authentication, and real end-to-end command output — at the cost of needing a reachable Splunk instance to run.
+
+Each integration case uses one of two assertion styles:
+
+- **Expectation profile:** validates the raw CLI exit code, stderr, and output shape without comparing environment-specific values. Use this for contracts shared by many commands, such as a successful command that returns a non-empty JSON array.
+- **Golden file:** compares the normalized result against a per-test JSON file using exact `reflect.DeepEqual` matching. Existing cases without an `expectation` continue to use this behavior unchanged.
 
 If you add or change a command's behavior in a way that affects what it sends to or receives from Splunk, add or update an integration test for it, in addition to unit tests. See [Adding commands](adding-commands.md) for when this is expected.
 
@@ -298,20 +304,61 @@ If you add or change a command's behavior in a way that affects what it sends to
 Integration tests live under `tests/integration/`, one directory per command, grouped by command category:
 
 ```
+tests/integration/
+  expectations.yml        — reusable output-contract profiles
 tests/integration/<group>/test_<command>/
   configs/<command>.yml   — test cases: name + splunkctl command
-  output/<testname>.json  — golden output file, one per test case
+  output/<testname>.json  — expected result for each golden-backed case
 ```
 
 - `<group>` is a category such as `core`.
-- `configs/<command>.yml` lists one or more test cases for that command. Each case has a `testname` and the exact `splunkctl_cmd` to run.
-- `output/<testname>.json` holds the expected result for that exact test case, keyed by `testname`.
+- `configs/<command>.yml` lists one or more test cases. Each case has a `testname`, the exact `splunkctl_cmd` to run, and optionally an `expectation` profile name.
+- `expectations.yml` contains shared profiles. Profile-backed cases do not need a file under `output/`.
+- `output/<testname>.json` holds the expected result for a golden-backed case.
 
-Test names in the YAML file must use the command name as a prefix (e.g., `test_app_install_success`, not `install_success`). Each test name maps to exactly one golden file in `output/`.
+Test names in the YAML file must use the command name as a prefix (e.g., `test_app_install_success`, not `install_success`). A test with no `expectation` maps to exactly one golden file in `output/`.
+
+## Reusable expectation profiles
+
+Profiles are defined once in `tests/integration/expectations.yml` and referenced by name from any command config. The checked-in non-empty JSON profile is:
+
+```yaml
+version: 1
+
+profiles:
+  cli_success_json_array_non_empty:
+    exit_code: 0
+    stderr: empty
+    stdout:
+      format: json
+      type: array
+      cardinality: non_empty
+```
+
+Multiple commands can reuse it:
+
+```yaml
+server_health:
+- testname: test_server_health_success
+  splunkctl_cmd: 'server health --output json'
+  expectation: cli_success_json_array_non_empty
+```
+
+The runner validates all selected profile references before running any commands. Profiles currently require `stderr: empty`, `stdout.format: json`, and `stdout.type: array`. The supported JSON-array cardinalities are:
+
+| Cardinality | Assertion |
+|---|---|
+| `non_empty` | Stdout is a valid JSON array with at least one item. |
+| `empty` | Stdout is a valid empty JSON array (`[]`). |
+| `any` | Stdout is a valid JSON array of any size. |
+
+All three still require the configured exit code and stderr behavior. Blank stdout is not the same as `[]` and fails every JSON profile.
+
+Exit code `0` proves that the CLI completed successfully; it does not prove that Splunk returned exactly HTTP 200 because the CLI does not expose successful upstream status codes. Name profiles after the CLI contract, not an assumed HTTP status. Treat a shared profile's meaning as stable: add a new profile instead of weakening an existing one in a way that silently changes every referencing test.
 
 ## Example: the `app` integration test
 
-`tests/integration/core/test_app/configs/app.yml` defines seven test cases for the `app` command:
+`tests/integration/core/test_app/configs/app.yml` mixes reusable profiles with legacy golden files. This excerpt shows both styles:
 
 ```yaml
 app:
@@ -321,8 +368,13 @@ app:
   splunkctl_cmd: 'app install https://example.com/test_app.tgz --output json --yes'
 - testname: test_app_install_success
   splunkctl_cmd: "app install ${CI_TEST_APP_PATH:-$PWD/tests/resources/TestApp/test_app.tgz} --output json --yes"
+  expectation: cli_success_json_array_non_empty
 - testname: test_app_display_multiply_success
   splunkctl_cmd: 'app display multiply --output json'
+  expectation: cli_success_json_array_non_empty
+- testname: test_app_display_read_only_success
+  splunkctl_cmd: 'app display multiply --output json --read-only'
+  expectation: cli_success_json_array_non_empty
 - testname: test_app_disable_success
   splunkctl_cmd: 'app disable multiply --output json --yes'
 - testname: test_app_enable_success
@@ -331,21 +383,16 @@ app:
   splunkctl_cmd: 'app remove multiply --output json --yes'
 ```
 
-Each `testname` has a matching golden file in `tests/integration/core/test_app/output/`. For example, `test_app_display_multiply_success.json` holds the exact JSON the runner expects `app display multiply --output json` to produce:
+The display cases share `cli_success_json_array_non_empty`, so their values may differ across Splunk environments while their CLI contract remains enforced. Cases without `expectation`, such as `test_app_disable_success`, retain their exact golden file under `tests/integration/core/test_app/output/`:
 
 ```json
 {
     "job_is_successful": true,
-    "splunkctl_cmd": "app display multiply --output json",
+    "splunkctl_cmd": "app disable multiply --output json --yes",
     "msg_fatal": null,
     "msg_warns": null,
-    "result_message": "Results set with 1 result(s)",
-    "result_statistics": [
-        {
-            "name": "multiply",
-            "...": "..."
-        }
-    ]
+    "result_message": "Results set with 0 result(s)",
+    "result_statistics": []
 }
 ```
 
@@ -359,13 +406,15 @@ Also notice `test_app_install_success` uses `${CI_TEST_APP_PATH:-$PWD/tests/reso
 1. Pick (or create) the command's config file: `tests/integration/<group>/test_<command>/configs/<command>.yml`.
 2. Add a new entry with a `testname` prefixed with the command name, and the exact `splunkctl_cmd` to run (without `./splunkctl` or `--insecure` — the runner adds both automatically).
    Add `--yes` when the fixture performs a local state change or sends a guarded HTTP method, including a status endpoint implemented with POST.
-3. Run the config in **generate mode** (see below) to produce the golden file from a real run.
-4. Inspect the generated golden file before committing it — confirm it reflects the behavior you actually intend, not just whatever the live instance happened to return.
-5. Commit the config change and the new golden file together.
+3. Choose the narrowest assertion that represents the intended contract:
+   - Add `expectation: <profile-name>` when an existing shared profile fits. No per-test output file is needed.
+   - Omit `expectation` when exact values matter, then use generate mode to create the golden file.
+4. Run the config in test mode. For a new golden-backed test, run generate mode first and inspect the generated file before committing it.
+5. Commit the config with its profile reference or golden file as applicable.
 
 ## Step 1: Generate mode
 
-Generate mode runs your configured command against a live Splunk instance and **writes its actual output as the new golden file**, overwriting whatever was there before:
+Generate mode runs every configured command against a live Splunk instance. For golden-backed cases, it **writes the actual normalized output as the new golden file**, overwriting whatever was there before. For profile-backed cases, it validates the profile and never writes a per-test golden or modifies `expectations.yml`.
 
 ```bash
 make generate-integration INTEGRATION_CMD=app
@@ -375,7 +424,7 @@ Use this the first time you add a test case, and any time a command's legitimate
 
 ## Step 2: Test mode
 
-Test mode is the default (`INTEGRATION_MODE=test`, or simply omitting `INTEGRATION_MODE`). It runs the same configured command and **compares** the actual output against the existing golden file using exact `reflect.DeepEqual` matching, reporting pass/fail with a structured diff on mismatch:
+Test mode is the default (`INTEGRATION_MODE=test`, or simply omitting `INTEGRATION_MODE`). It validates profile-backed cases against raw CLI output and compares golden-backed cases using exact `reflect.DeepEqual` matching. Golden mismatches retain the existing structured diff:
 
 ```bash
 make test-integration INTEGRATION_CMD=app
@@ -388,13 +437,13 @@ make test-integration INTEGRATION_CMD=app
 First build the CLI and integration-test runner, then provide a host and bearer token using the environment or the normal `splunkctl` configuration:
 
 ```bash
-make build
+make build-runner
 export SPLUNKCTL_HOST=https://your-splunk-host:8089
 export SPLUNKCTL_TOKEN=<your-token>
 make test-integration INTEGRATION_CMD=server_health
 ```
 
-`SPLUNKCTL_HOST` and `SPLUNKCTL_TOKEN` must be configured (via `~/.splunkctl/config.yaml` or env vars) pointing at a live Splunk instance. Add `--insecure` to the config if TLS verification should be skipped.
+`SPLUNKCTL_HOST` and `SPLUNKCTL_TOKEN` must be configured (via `~/.splunkctl/config.yaml` or env vars) pointing at a live Splunk instance. The integration runner adds `--insecure` to every test command, so use it only with the intended test deployment.
 
 ## Running against a local Splunk instance
 

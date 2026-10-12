@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/splunk/splunkctl/internal/client"
 	"github.com/splunk/splunkctl/internal/cmdctx"
 	"github.com/splunk/splunkctl/internal/output"
 )
@@ -57,7 +58,7 @@ var aclShowCmd = &cobra.Command{
 			return err
 		}
 		if status >= 400 {
-			return fmt.Errorf("acl show failed (%d): %s", status, string(body))
+			return client.ErrorFromStatus(status, body)
 		}
 		result, err := parseACLResponse(body, name, objType)
 		if err != nil {
@@ -146,7 +147,7 @@ func resolveAclPath(ctx context.Context, c interface {
 		return "", err
 	}
 	if status >= 400 {
-		return "", fmt.Errorf("object lookup failed (%d): %s", status, string(body))
+		return "", client.ErrorFromStatus(status, body)
 	}
 	var feed struct {
 		Entry []struct {

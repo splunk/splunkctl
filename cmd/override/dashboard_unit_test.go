@@ -2,6 +2,7 @@ package override
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/splunk/splunkctl/internal/client"
+	"github.com/splunk/splunkctl/internal/cmdctx"
 	"github.com/splunk/splunkctl/internal/config"
 )
 
@@ -91,8 +93,15 @@ func TestResolveDashboardPath_HTTPError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for HTTP 404")
 	}
-	if !strings.Contains(err.Error(), "dashboard lookup failed") {
-		t.Errorf("expected 'dashboard lookup failed' in error, got %v", err)
+	var splunkErr *client.SplunkError
+	if !errors.As(err, &splunkErr) {
+		t.Fatalf("expected *client.SplunkError, got %T: %v", err, err)
+	}
+	if splunkErr.Status != 404 {
+		t.Errorf("expected Status 404, got %d", splunkErr.Status)
+	}
+	if splunkErr.Message != "not found" {
+		t.Errorf("expected Splunk's message preserved, got %q", splunkErr.Message)
 	}
 }
 
@@ -224,5 +233,34 @@ func TestDashboardContent_FromFile(t *testing.T) {
 	}
 	if !strings.Contains(got, "<dashboard>") {
 		t.Errorf("expected dashboard XML in output, got %q", got)
+	}
+}
+
+func TestDashboardRemove_PreservesSplunkStatusAndMessage(t *testing.T) {
+	c, _ := newDashboardClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(404)
+		fmt.Fprint(w, `{"messages":[{"type":"ERROR","text":"Could not find object id=doesnotexist"}]}`)
+	})
+
+	root := &cobra.Command{Use: "splunkctl", SilenceUsage: true, SilenceErrors: true}
+	root.PersistentFlags().String("output", "", "")
+	root.AddCommand(dashboardRemoveCmd)
+	root.SetContext(cmdctx.WithClient(context.Background(), c))
+	root.SetArgs([]string{"remove", "doesnotexist", "--app", "search"})
+
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("expected error for HTTP 404")
+	}
+	var splunkErr *client.SplunkError
+	if !errors.As(err, &splunkErr) {
+		t.Fatalf("expected *client.SplunkError, got %T: %v", err, err)
+	}
+	if splunkErr.Status != 404 {
+		t.Errorf("expected Status 404, got %d", splunkErr.Status)
+	}
+	if splunkErr.Message != "Could not find object id=doesnotexist" {
+		t.Errorf("expected Splunk's message preserved, got %q", splunkErr.Message)
 	}
 }

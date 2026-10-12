@@ -25,13 +25,16 @@ user invokes: splunkctl index list
      - creates one invocation-scoped write check from `--yes` and `--read-only`
      - config.Resolve(flagHost, flagToken, insecure, output)
        reads: flag → SPLUNKCTL_HOST/TOKEN env → ~/.splunkctl/config.yaml
-     - client.NewWithWriteCheck(cfg, check) - creates http.Client with 30s timeout, optional TLS skip-verify
+     - derives the canonical command name from Cobra's path (for example, `index_list`)
+     - generates one random UUID v4 request ID, formatted as 36 lowercase characters with hyphens
+     - client.NewWithWriteCheck(cfg, check, timeoutSec, Version, commandName, requestID) - creates http.Client with configured timeout, optional TLS skip-verify
      - cmdctx.WithClient(cmd.Context(), c) — stores client in context
 4. RunE (generated):
      - cmdctx.ClientFrom(cmd) — retrieves client from context
      - builds params map from flags
      - c.Do(cmd.Context(), Request{Method:"GET", Path:"/data/indexes/"})
        → sets Authorization: Bearer <token>
+       → sets User-Agent: splunkctl/<Version> (cmd=index_list; requestID=<UUID-v4>) on every request in this invocation
        → sets output_mode=json query param
        → reads response → parseEntries() → []map[string]any
 5. output.Print(cmd.Context(), results, outFmt)
@@ -39,6 +42,8 @@ user invokes: splunkctl index list
      - writes to writer from context (os.Stdout by default; injected in tests)
 6. errors surface to cmd.Execute() → errorToCode() → stderr JSON containing only `error` and `code` + exit code
 ```
+
+The command marker contains Cobra command names only; arguments and flags are omitted. The invocation ID is new for each CLI execution and shared by that execution's requests so access-log searches can group them. HTTP status in `splunkd_access.log` describes each request, while the CLI's final error code is determined after the requests complete and is not sent in User-Agent.
 
 ## Config resolution
 

@@ -30,6 +30,10 @@ func TestHECSendUsesGuardedClient(t *testing.T) {
 	ctx := cmdctx.WithClient(context.Background(), client.NewWithWriteCheck(
 		clientConfig,
 		func(context.Context) error { return denied },
+		0,
+		"dev",
+		"",
+		"",
 	))
 
 	cmd := &cobra.Command{}

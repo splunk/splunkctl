@@ -2,10 +2,13 @@ package override
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/splunk/splunkctl/internal/client"
 )
 
 type mockRawDoer struct {
@@ -74,8 +77,15 @@ func TestResolveAclPath_HTTPError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for HTTP 404")
 	}
-	if !strings.Contains(err.Error(), "object lookup failed") {
-		t.Errorf("expected 'object lookup failed' in error, got %v", err)
+	var splunkErr *client.SplunkError
+	if !errors.As(err, &splunkErr) {
+		t.Fatalf("expected *client.SplunkError, got %T: %v", err, err)
+	}
+	if splunkErr.Status != 404 {
+		t.Errorf("expected Status 404, got %d", splunkErr.Status)
+	}
+	if splunkErr.Code != "NOT_FOUND" {
+		t.Errorf("expected Code NOT_FOUND, got %q", splunkErr.Code)
 	}
 }
 

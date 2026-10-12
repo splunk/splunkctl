@@ -32,6 +32,7 @@ type Client struct {
 	cfg        *config.Config
 	httpClient *http.Client
 	writeCheck WriteCheck
+	userAgent  string
 }
 
 // Host returns the base Splunk URL (e.g. https://host:8089) without trailing slash.
@@ -97,24 +98,39 @@ func (c *Client) RawDoAbs(ctx context.Context, method, path string, body url.Val
 	return data, resp.StatusCode, err
 }
 
-// New creates a client without a write check. The splunkctl root command uses
-// NewWithWriteCheck instead so CLI writes honor --yes and --read-only.
+// New creates a client without a write check, using the default HTTP timeout.
+// The splunkctl root command uses NewWithWriteCheck instead so CLI writes
+// honor --yes and --read-only, and so a --timeout flag can be applied.
 func New(cfg *config.Config) *Client {
-	return NewWithWriteCheck(cfg, nil)
+	return NewWithWriteCheck(cfg, nil, 0, "dev", "", "")
 }
 
 // NewWithWriteCheck saves check in the Client. All client request functions
 // eventually call c.do, which runs this check before sending a write request.
-func NewWithWriteCheck(cfg *config.Config, check WriteCheck) *Client {
+// timeoutSec sets the HTTP request timeout; a value <= 0 uses DefaultTimeoutSec.
+// version, commandName, and requestID identify splunkctl requests in Splunk's access logs.
+func NewWithWriteCheck(cfg *config.Config, check WriteCheck, timeoutSec int, version, commandName, requestID string) *Client {
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: cfg.Insecure},
+	}
+	if timeoutSec <= 0 {
+		timeoutSec = DefaultTimeoutSec
+	}
+	userAgent := "splunkctl/" + version
+	if commandName != "" {
+		userAgent += " (cmd=" + commandName
+		if requestID != "" {
+			userAgent += "; requestID=" + requestID
+		}
+		userAgent += ")"
 	}
 	return &Client{
 		cfg:        cfg,
 		writeCheck: check,
+		userAgent:  userAgent,
 		httpClient: &http.Client{
 			Transport: transport,
-			Timeout:   30 * time.Second,
+			Timeout:   time.Duration(timeoutSec) * time.Second,
 		},
 	}
 }
@@ -139,6 +155,10 @@ func (c *Client) do(req *http.Request) (*http.Response, error) {
 			}
 		}
 	}
+	if req.Header == nil {
+		req.Header = make(http.Header)
+	}
+	req.Header.Set("User-Agent", c.userAgent)
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("connection error: %w", err)
@@ -325,6 +345,18 @@ type SplunkError struct {
 
 func (e *SplunkError) Error() string {
 	return fmt.Sprintf("splunk error %d (%s): %s", e.Status, e.Code, e.Message)
+}
+
+// ErrorFromStatus classifies a RawDo/RawDoAbs/RawDoJSON response for callers that
+// interpret the body themselves. Returns nil for status < 400, otherwise the same
+// *SplunkError classification Do/Upload/Describe already produce, so a non-2xx
+// response from a raw call preserves Splunk's real status and message instead of
+// being reduced to a generic error.
+func ErrorFromStatus(status int, body []byte) error {
+	if status < 400 {
+		return nil
+	}
+	return parseErrorResponse(status, body)
 }
 
 func parseErrorResponse(status int, body []byte) error {

@@ -66,10 +66,10 @@ var jobsShowCmd = &cobra.Command{
 			return err
 		}
 		if status == 404 {
-			return fmt.Errorf("job %s not found — it may have expired (TTL exceeded)", sid)
+			return fmt.Errorf("job %s not found — it may have expired (TTL exceeded): %w", sid, client.ErrorFromStatus(status, body))
 		}
 		if status >= 400 {
-			return fmt.Errorf("job status check failed (%d): %s", status, string(body))
+			return client.ErrorFromStatus(status, body)
 		}
 
 		// poll until done
@@ -90,12 +90,12 @@ var jobsCancelCmd = &cobra.Command{
 		sid := args[0]
 		c := cmdctx.ClientFrom(cmd)
 
-		_, status, err := c.RawDo(cmd.Context(), "DELETE", "/search/jobs/"+sid, nil)
+		body, status, err := c.RawDo(cmd.Context(), "DELETE", "/search/jobs/"+sid, nil)
 		if err != nil {
 			return fmt.Errorf("cancelling job: %w", err)
 		}
 		if status >= 400 {
-			return fmt.Errorf("cancel failed (status %d)", status)
+			return client.ErrorFromStatus(status, body)
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), `{"job_id":%q,"cancelled":true}`+"\n", sid)
 		return nil
@@ -116,7 +116,7 @@ var jobsStatusCmd = &cobra.Command{
 			return err
 		}
 		if status >= 400 {
-			return fmt.Errorf("status check failed (%d): %s", status, string(body))
+			return client.ErrorFromStatus(status, body)
 		}
 
 		var resp struct {
@@ -164,7 +164,7 @@ var jobsEventsCmd = &cobra.Command{
 			return err
 		}
 		if status >= 400 {
-			return fmt.Errorf("events fetch failed (%d): %s", status, string(body))
+			return client.ErrorFromStatus(status, body)
 		}
 		var feed struct {
 			Results []map[string]any `json:"results"`
@@ -203,13 +203,13 @@ func jobControl(action string) func(cmd *cobra.Command, args []string) error {
 		sid := args[0]
 		c := cmdctx.ClientFrom(cmd)
 		form := map[string]string{"action": action}
-		_, status, err := c.RawDo(cmd.Context(), "POST", "/search/jobs/"+sid+"/control",
+		body, status, err := c.RawDo(cmd.Context(), "POST", "/search/jobs/"+sid+"/control",
 			urlValues(form))
 		if err != nil {
 			return err
 		}
 		if status >= 400 {
-			return fmt.Errorf("%s failed (status %d)", action, status)
+			return client.ErrorFromStatus(status, body)
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), `{"sid":%q,"action":%q}`+"\n", sid, action)
 		return nil
