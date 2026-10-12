@@ -1,8 +1,11 @@
 package override
 
 import (
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/splunk/splunkctl/internal/client"
 )
 
 func TestParseUserFeed_SingleUser(t *testing.T) {
@@ -51,5 +54,35 @@ func TestParseUserFeed_InvalidJSON(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "parsing user response") {
 		t.Errorf("expected error to contain 'parsing user response', got %v", err)
+	}
+}
+
+func TestRawUserResult_ClassifiesAuthorizationError(t *testing.T) {
+	body := []byte(`{"messages":[{"type":"ERROR","text":"You do not have permission to perform this operation (edit_user)."}]}`)
+	_, err := rawUserResult(body, 403)
+
+	var splunkErr *client.SplunkError
+	if !errors.As(err, &splunkErr) {
+		t.Fatalf("expected *client.SplunkError, got %T: %v", err, err)
+	}
+	if splunkErr.Status != 403 {
+		t.Errorf("expected Status 403, got %d", splunkErr.Status)
+	}
+	if splunkErr.Code != "AUTH_ERROR" {
+		t.Errorf("expected Code AUTH_ERROR (errorToCode maps this to exit 4), got %q", splunkErr.Code)
+	}
+	if splunkErr.Message != "You do not have permission to perform this operation (edit_user)." {
+		t.Errorf("expected Splunk's original message preserved, got %q", splunkErr.Message)
+	}
+}
+
+func TestRawUserResult_SuccessStillParsesFeed(t *testing.T) {
+	body := []byte(`{"entry":[{"name":"jdoe","content":{"email":"jdoe@example.com"}}]}`)
+	results, err := rawUserResult(body, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0]["name"] != "jdoe" {
+		t.Fatalf("unexpected results: %v", results)
 	}
 }

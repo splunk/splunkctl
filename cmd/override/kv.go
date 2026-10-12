@@ -6,6 +6,7 @@ import (
 	"net/url"
 
 	"github.com/spf13/cobra"
+	"github.com/splunk/splunkctl/internal/client"
 	"github.com/splunk/splunkctl/internal/cmdctx"
 	"github.com/splunk/splunkctl/internal/output"
 )
@@ -38,7 +39,7 @@ var kvCollectionListCmd = &cobra.Command{
 			return err
 		}
 		if status >= 400 {
-			return fmt.Errorf("kv collection list failed (%d): %s", status, string(body))
+			return client.ErrorFromStatus(status, body)
 		}
 		results, err := kvParseEntries(body)
 		if err != nil {
@@ -72,10 +73,10 @@ var kvCollectionAddCmd = &cobra.Command{
 			return err
 		}
 		if status == 409 {
-			return fmt.Errorf("collection %q already exists (use 'kv collection list' to see existing collections)", name)
+			return fmt.Errorf("collection %q already exists (use 'kv collection list' to see existing collections): %w", name, client.ErrorFromStatus(status, body))
 		}
 		if status >= 400 {
-			return fmt.Errorf("kv collection add failed (%d): %s", status, string(body))
+			return client.ErrorFromStatus(status, body)
 		}
 		results, err := kvParseEntries(body)
 		if err != nil {
@@ -105,7 +106,7 @@ var kvCollectionRemoveCmd = &cobra.Command{
 			return err
 		}
 		if status >= 400 {
-			return fmt.Errorf("kv collection remove failed (%d): %s", status, string(body))
+			return client.ErrorFromStatus(status, body)
 		}
 		outFmt, _ := cmd.Flags().GetString("output")
 		return output.Print(cmd.Context(), []map[string]any{{"name": name, "deleted": true}}, outFmt)
@@ -141,7 +142,7 @@ var kvDataQueryCmd = &cobra.Command{
 			return err
 		}
 		if status >= 400 {
-			return fmt.Errorf("kv query failed (%d): %s", status, string(body))
+			return client.ErrorFromStatus(status, body)
 		}
 
 		var records []map[string]any
@@ -177,7 +178,7 @@ var kvDataGetCmd = &cobra.Command{
 			return err
 		}
 		if status >= 400 {
-			return fmt.Errorf("kv get failed (%d): %s", status, string(body))
+			return client.ErrorFromStatus(status, body)
 		}
 		var record map[string]any
 		if err := json.Unmarshal(body, &record); err != nil {
@@ -219,7 +220,7 @@ var kvDataPutCmd = &cobra.Command{
 			return err
 		}
 		if status >= 400 {
-			return fmt.Errorf("kv put failed (%d): %s", status, string(body))
+			return client.ErrorFromStatus(status, body)
 		}
 		var result map[string]any
 		if err := json.Unmarshal(body, &result); err != nil {
@@ -254,7 +255,7 @@ var kvDataDeleteCmd = &cobra.Command{
 			return err
 		}
 		if status >= 400 {
-			return fmt.Errorf("kv delete failed (%d): %s", status, string(body))
+			return client.ErrorFromStatus(status, body)
 		}
 		outFmt, _ := cmd.Flags().GetString("output")
 		return output.Print(cmd.Context(), []map[string]any{{"_key": key, "deleted": true}}, outFmt)

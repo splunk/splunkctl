@@ -2,6 +2,7 @@ package override
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -87,8 +88,15 @@ func TestFetchResults_HTTPError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for HTTP 500")
 	}
-	if !strings.Contains(err.Error(), "results fetch failed") {
-		t.Errorf("expected 'results fetch failed' in error, got %v", err)
+	var splunkErr *client.SplunkError
+	if !errors.As(err, &splunkErr) {
+		t.Fatalf("expected *client.SplunkError, got %T: %v", err, err)
+	}
+	if splunkErr.Status != 500 {
+		t.Errorf("expected Status 500, got %d", splunkErr.Status)
+	}
+	if splunkErr.Message != "server error" {
+		t.Errorf("expected Splunk's message preserved, got %q", splunkErr.Message)
 	}
 }
 
@@ -150,7 +158,14 @@ func TestPollJob_HTTPError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for HTTP 500")
 	}
-	if !strings.Contains(err.Error(), "job status check failed") {
-		t.Errorf("expected 'job status check failed' in error, got %v", err)
+	var splunkErr *client.SplunkError
+	if !errors.As(err, &splunkErr) {
+		t.Fatalf("expected *client.SplunkError, got %T: %v", err, err)
+	}
+	if splunkErr.Status != 500 {
+		t.Errorf("expected Status 500, got %d", splunkErr.Status)
+	}
+	if splunkErr.Message != "internal error" {
+		t.Errorf("expected Splunk's message preserved, got %q", splunkErr.Message)
 	}
 }

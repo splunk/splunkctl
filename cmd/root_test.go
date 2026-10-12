@@ -54,3 +54,21 @@ func TestErrorToCode_WriteSafetyError(t *testing.T) {
 		t.Errorf("got (%s, %d), want (READ_ONLY, 1)", code, exit)
 	}
 }
+
+func TestValidateTimeoutSec_RejectsZero(t *testing.T) {
+	if err := validateTimeoutSec(0); err == nil {
+		t.Fatal("expected error for timeout of 0")
+	}
+}
+
+func TestValidateTimeoutSec_RejectsNegative(t *testing.T) {
+	if err := validateTimeoutSec(-5); err == nil {
+		t.Fatal("expected error for negative timeout")
+	}
+}
+
+func TestValidateTimeoutSec_AcceptsPositive(t *testing.T) {
+	if err := validateTimeoutSec(60); err != nil {
+		t.Fatalf("expected no error for a positive timeout, got %v", err)
+	}
+}

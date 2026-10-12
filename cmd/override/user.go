@@ -48,11 +48,11 @@ var UserAddCmd = &cobra.Command{
 		for k, v := range params {
 			form.Set(k, v)
 		}
-		data, _, err := c.RawDo(cmd.Context(), "POST", "/authentication/users/", form)
+		data, status, err := c.RawDo(cmd.Context(), "POST", "/authentication/users/", form)
 		if err != nil {
 			return err
 		}
-		results, err := parseUserFeed(data)
+		results, err := rawUserResult(data, status)
 		if err != nil {
 			return err
 		}
@@ -99,11 +99,11 @@ var UserEditCmd = &cobra.Command{
 		if len(form) == 0 {
 			return fmt.Errorf("specify at least one of --roles, --password, --full-name, --tz")
 		}
-		data, _, err := c.RawDo(cmd.Context(), "POST", "/authentication/users/"+username, form)
+		data, status, err := c.RawDo(cmd.Context(), "POST", "/authentication/users/"+username, form)
 		if err != nil {
 			return err
 		}
-		results, err := parseUserFeed(data)
+		results, err := rawUserResult(data, status)
 		if err != nil {
 			return err
 		}
@@ -192,6 +192,17 @@ func parseUserFeed(body []byte) ([]map[string]any, error) {
 		results = append(results, row)
 	}
 	return results, nil
+}
+
+// rawUserResult classifies a RawDo response for user add/edit. A non-2xx status
+// means Splunk rejected the request (e.g. 403 for missing edit_user), and that
+// status/message must survive to errorToCode in cmd/root.go instead of falling
+// back to a generic usage error.
+func rawUserResult(data []byte, status int) ([]map[string]any, error) {
+	if status >= 400 {
+		return nil, client.ErrorFromStatus(status, data)
+	}
+	return parseUserFeed(data)
 }
 
 func init() {

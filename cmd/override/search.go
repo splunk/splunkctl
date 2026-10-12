@@ -75,7 +75,7 @@ var searchExportCmd = &cobra.Command{
 			return fmt.Errorf("export: %w", err)
 		}
 		if status >= 400 {
-			return fmt.Errorf("export failed (%d): %s", status, body)
+			return client.ErrorFromStatus(status, body)
 		}
 
 		// export returns newline-delimited JSON objects; collect results
@@ -135,7 +135,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("submitting search: %w", err)
 	}
 	if status >= 400 {
-		return fmt.Errorf("search submission failed (status %d): %s", status, string(body))
+		return client.ErrorFromStatus(status, body)
 	}
 
 	var submitResp struct {
@@ -185,7 +185,7 @@ func pollJob(ctx context.Context, c *client.Client, sid string, maxTimeSec int) 
 			return fmt.Errorf("polling job: %w", err)
 		}
 		if status >= 400 {
-			return fmt.Errorf("job status check failed (status %d): %s", status, string(body))
+			return client.ErrorFromStatus(status, body)
 		}
 
 		var statusResp struct {
@@ -234,7 +234,7 @@ func fetchResults(cmd *cobra.Command, c *client.Client, sid string, maxout int, 
 		return fmt.Errorf("fetching results: %w", err)
 	}
 	if status >= 400 {
-		return fmt.Errorf("results fetch failed (status %d): %s", status, string(body))
+		return client.ErrorFromStatus(status, body)
 	}
 
 	var resultsFeed struct {

@@ -9,28 +9,34 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/splunk/splunkctl/internal/client"
 	"github.com/splunk/splunkctl/internal/config"
 )
 
-func TestClient_InjectsBearerToken(t *testing.T) {
-	var gotAuth string
+func TestClient_InjectsRequestHeaders(t *testing.T) {
+	var gotAuth, gotUserAgent string
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
+		gotUserAgent = r.UserAgent()
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"entry":[]}`))
 	}))
 	defer srv.Close()
 
 	cfg := &config.Config{Host: srv.URL, Token: "mytoken", Insecure: true}
-	c := client.New(cfg)
+	c := client.NewWithWriteCheck(cfg, nil, 0, "9.8.7", "index_list", "4a9f83c2-1d8b-4e6a-92f0-c1b3d4e5f6a7")
 	_, err := c.Do(context.Background(), client.Request{Method: "GET", Path: "/data/indexes/"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if gotAuth != "Bearer mytoken" {
 		t.Errorf("expected Bearer mytoken, got %q", gotAuth)
+	}
+	wantUserAgent := "splunkctl/9.8.7 (cmd=index_list; requestID=4a9f83c2-1d8b-4e6a-92f0-c1b3d4e5f6a7)"
+	if gotUserAgent != wantUserAgent {
+		t.Errorf("User-Agent = %q, want %q", gotUserAgent, wantUserAgent)
 	}
 }
 
@@ -97,6 +103,31 @@ func TestClient_404ReturnsError(t *testing.T) {
 	}
 }
 
+func TestErrorFromStatus_PreservesSplunkStatusAndMessage(t *testing.T) {
+	body := []byte(`{"messages":[{"type":"ERROR","text":"You do not have permission to perform this operation (edit_user)."}]}`)
+	err := client.ErrorFromStatus(403, body)
+
+	var splunkErr *client.SplunkError
+	if !errors.As(err, &splunkErr) {
+		t.Fatalf("expected *client.SplunkError, got %T: %v", err, err)
+	}
+	if splunkErr.Status != 403 {
+		t.Errorf("expected Status 403, got %d", splunkErr.Status)
+	}
+	if splunkErr.Code != "AUTH_ERROR" {
+		t.Errorf("expected Code AUTH_ERROR, got %q", splunkErr.Code)
+	}
+	if splunkErr.Message != "You do not have permission to perform this operation (edit_user)." {
+		t.Errorf("expected Splunk's message preserved, got %q", splunkErr.Message)
+	}
+}
+
+func TestErrorFromStatus_NilForSuccess(t *testing.T) {
+	if err := client.ErrorFromStatus(200, []byte(`{}`)); err != nil {
+		t.Errorf("expected nil for 2xx status, got %v", err)
+	}
+}
+
 // RawDo must prepend /services to the path.
 func TestRawDo_PrependsServicesPrefix(t *testing.T) {
 	var gotPath string
@@ -145,6 +176,50 @@ func TestRawDo_SendsFormBody(t *testing.T) {
 	c.RawDo(context.Background(), "POST", "/search/jobs", body)
 	if !strings.Contains(gotBody, "search=") {
 		t.Errorf("expected form body with search=, got %q", gotBody)
+	}
+}
+
+// NewWithWriteCheck must use the passed-in timeoutSec instead of the old fixed
+// 30s, so a short configured timeout cuts off a slow server well before 30s would.
+func TestClient_UsesConfiguredTimeout(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(1500 * time.Millisecond)
+		w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	c := client.NewWithWriteCheck(&config.Config{Host: srv.URL, Token: "tok", Insecure: true}, nil, 1, "dev", "", "")
+	start := time.Now()
+	_, _, err := c.RawDo(context.Background(), "GET", "/slow", nil)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected a timeout error")
+	}
+	if elapsed >= 30*time.Second {
+		t.Fatalf("request took %v, want well under the old 30s default", elapsed)
+	}
+}
+
+// DefaultTimeoutSec must stay 30 so existing behavior is unchanged when no
+// --timeout is provided.
+func TestDefaultTimeoutSec_Is30(t *testing.T) {
+	if client.DefaultTimeoutSec != 30 {
+		t.Errorf("expected DefaultTimeoutSec = 30, got %d", client.DefaultTimeoutSec)
+	}
+}
+
+// A timeoutSec of 0 (nothing passed) must fall back to the default rather
+// than producing a broken/instant-fail client.
+func TestNewWithWriteCheck_ZeroTimeoutFallsBackToDefault(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	c := client.NewWithWriteCheck(&config.Config{Host: srv.URL, Token: "tok", Insecure: true}, nil, 0, "dev", "", "")
+	if _, _, err := c.RawDo(context.Background(), "GET", "/ok", nil); err != nil {
+		t.Fatalf("expected success with default timeout, got %v", err)
 	}
 }
 
@@ -237,6 +312,10 @@ func TestClient_WriteCheckUsesHTTPMethod(t *testing.T) {
 					checked++
 					return denied
 				},
+				0,
+				"dev",
+				"",
+				"",
 			)
 			req, err := http.NewRequestWithContext(context.Background(), method, srv.URL, nil)
 			if err != nil {
@@ -271,6 +350,10 @@ func TestClient_WriteCheckCoversRequestAPIs(t *testing.T) {
 	c := client.NewWithWriteCheck(
 		&config.Config{Host: "https://splunk.invalid", Token: "tok"},
 		func(context.Context) error { return denied },
+		0,
+		"dev",
+		"",
+		"",
 	)
 
 	tests := map[string]func() error{

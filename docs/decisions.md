@@ -173,3 +173,13 @@ Remote operations are checked from the shared client immediately before any HTTP
 Local operations call the same invocation-scoped check immediately before their first state change.
 This avoids maintaining a command-name catalog and automatically covers new REST commands that use the client.
 The conservative HTTP rule can block a read-oriented Splunk endpoint implemented with POST; adding endpoint-name exceptions would weaken the simple fail-closed boundary.
+
+---
+
+## User-Agent groups REST requests by CLI invocation
+
+The CLI sends `splunkctl/<version> (cmd=<command>; requestID=<UUID-v4>)` on its REST requests. The command is derived from Cobra's canonical names, without arguments or flags. A fresh random UUID is generated once per CLI invocation and reused for all of its requests. This lets access-log analysis count commands such as `whoami` and `search` once even when they make multiple HTTP requests.
+
+The request ID now has the 36-character, hyphenated UUID v4 format. Searches over historic access logs must accept both this format and the earlier 32-character hexadecimal ID. `github.com/google/uuid` sets the UUID version and variant bits and avoids hand-written formatting. Its `NewRandom` function preserves the CLI's error-return behavior if random generation fails. Version 1.6.0 has no module dependencies and uses a BSD-style license.
+
+Splunk's standard access log records User-Agent but does not document arbitrary custom request headers as fields, so this format uses a short [HTTP User-Agent comment](https://www.rfc-editor.org/rfc/rfc9110.html#section-10.1.5). A unique ID raises field cardinality; it is deliberately ephemeral rather than a persistent installation or user identifier. HTTP status remains a request outcome, not the CLI's final exit status, and commands that never reach Splunk have no access-log record.

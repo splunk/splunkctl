@@ -74,7 +74,7 @@ var dashboardListCmd = &cobra.Command{
 			return err
 		}
 		if status >= 400 {
-			return fmt.Errorf("dashboard list failed (%d): %s", status, string(body))
+			return client.ErrorFromStatus(status, body)
 		}
 		results, err := parseDashboardFeed(body)
 		if err != nil {
@@ -103,7 +103,7 @@ var dashboardShowCmd = &cobra.Command{
 			return err
 		}
 		if status >= 400 {
-			return fmt.Errorf("dashboard show failed (%d): %s", status, string(body))
+			return client.ErrorFromStatus(status, body)
 		}
 		results, err := parseDashboardFeed(body)
 		if err != nil {
@@ -191,7 +191,7 @@ var dashboardEditCmd = &cobra.Command{
 			return err
 		}
 		if status >= 400 {
-			return fmt.Errorf("dashboard edit failed (%d): %s", status, string(body))
+			return client.ErrorFromStatus(status, body)
 		}
 		results, err := parseDashboardFeed(body)
 		if err != nil {
@@ -215,21 +215,21 @@ var dashboardRemoveCmd = &cobra.Command{
 			name = args[0]
 		}
 		path := dashboardPath(app) + url.PathEscape(name)
-		_, status, err := c.RawDoAbs(cmd.Context(), "DELETE", path, nil)
+		body, status, err := c.RawDoAbs(cmd.Context(), "DELETE", path, nil)
 		if err != nil {
 			return err
 		}
 		if status == 404 && app == "" {
 			resolved, rerr := resolveDashboardPath(cmd.Context(), c, name)
 			if rerr == nil {
-				_, status, err = c.RawDoAbs(cmd.Context(), "DELETE", resolved, nil)
+				body, status, err = c.RawDoAbs(cmd.Context(), "DELETE", resolved, nil)
 			}
 		}
 		if err != nil {
 			return err
 		}
 		if status >= 400 {
-			return fmt.Errorf("dashboard remove failed (%d)", status)
+			return client.ErrorFromStatus(status, body)
 		}
 		outFmt, _ := cmd.Flags().GetString("output")
 		return output.Print(cmd.Context(), []map[string]any{{"name": name, "deleted": true}}, outFmt)
@@ -244,7 +244,7 @@ func resolveDashboardPath(ctx context.Context, c *client.Client, name string) (s
 		return "", err
 	}
 	if status >= 400 {
-		return "", fmt.Errorf("dashboard lookup failed (%d)", status)
+		return "", client.ErrorFromStatus(status, body)
 	}
 	var feed struct {
 		Entry []struct {

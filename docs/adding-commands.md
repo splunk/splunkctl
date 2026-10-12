@@ -101,7 +101,7 @@ Use a fresh command from the package-local constructor, or a fresh test command 
 
 Do not reproduce the request directly in the test and treat that as command coverage. See [testing.md](testing.md) for the command-boundary pattern, package locations, state-isolation rules, and test-server helper details.
 
-**If you add or modify a command, make sure to add a corresponding integration test for that command.** Unit tests cover request/response contracts and Cobra wiring against a mock server; integration tests confirm the command actually works against a real Splunk instance. See [Integration Tests](testing.md#integration-tests) in testing.md for the config/golden-file structure, a worked example, and the generate → test workflow.
+**If you add or modify a command, make sure to add a corresponding integration test for that command.** Unit tests cover request/response contracts and Cobra wiring against a mock server; integration tests confirm the command actually works against a real Splunk instance. See [Integration Tests](testing.md#integration-tests) in testing.md for reusable expectation profiles, exact golden files, a worked example, and the generate → test workflow.
 
 ### Step 4: Run focused and required checks
 

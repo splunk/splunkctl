@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"github.com/splunk/splunkctl/internal/client"
 	"github.com/splunk/splunkctl/internal/cmdctx"
@@ -19,6 +20,7 @@ var (
 	flagToken    string
 	flagOutput   string
 	flagInsecure bool
+	flagTimeout  int
 )
 
 var rootCmd = &cobra.Command{
@@ -67,6 +69,17 @@ Connection (flag → env var → ~/.splunkctl/config.yaml):
 		if cmd.Annotations[annotationNoClient] == "true" {
 			return nil
 		}
+
+		// --timeout has no env var or config file; only a value explicitly
+		// passed on the command line is validated and used.
+		timeoutSec := 0
+		if cmd.Flags().Changed("timeout") {
+			if err := validateTimeoutSec(flagTimeout); err != nil {
+				return err
+			}
+			timeoutSec = flagTimeout
+		}
+
 		cfg, err := config.Resolve(flagHost, flagToken, flagInsecure, flagOutput)
 		if err != nil {
 			return err
@@ -74,10 +87,27 @@ Connection (flag → env var → ~/.splunkctl/config.yaml):
 
 		// Give the same function to the REST client. Before the client sends a
 		// POST, PUT, PATCH, DELETE, or other non-read request, it calls this function.
-		c := client.NewWithWriteCheck(cfg, writeCheck)
+		commandPath := strings.TrimPrefix(cmd.CommandPath(), cmd.Root().Name()+" ")
+		commandName := strings.ReplaceAll(commandPath, " ", "_")
+		// One ID per command keeps its REST requests grouped in access logs.
+		id, err := uuid.NewRandom()
+		if err != nil {
+			return fmt.Errorf("generating request ID: %w", err)
+		}
+		requestID := id.String()
+		c := client.NewWithWriteCheck(cfg, writeCheck, timeoutSec, Version, commandName, requestID)
 		cmd.SetContext(cmdctx.WithClient(cmd.Context(), c))
 		return nil
 	},
+}
+
+// validateTimeoutSec rejects a user-provided --timeout that isn't a positive
+// number of seconds. Only called when --timeout was explicitly passed.
+func validateTimeoutSec(sec int) error {
+	if sec <= 0 {
+		return fmt.Errorf("--timeout must be a positive number of seconds, got %d", sec)
+	}
+	return nil
 }
 
 func Execute() {
@@ -125,6 +155,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&flagToken, "token", "", "Splunk API bearer token (env: SPLUNKCTL_TOKEN)")
 	rootCmd.PersistentFlags().StringVarP(&flagOutput, "output", "o", "", "Output format: json|table|text (default: table on TTY, json otherwise)")
 	rootCmd.PersistentFlags().BoolVar(&flagInsecure, "insecure", false, "Skip TLS certificate verification")
+	rootCmd.PersistentFlags().IntVar(&flagTimeout, "timeout", 0, "HTTP request timeout in seconds (default 30)")
 	rootCmd.PersistentFlags().StringArray("param", nil, "Extra Splunk API parameter as key=value (repeatable, e.g. --param frozenTimePeriodInSecs=2592000)")
 	rootCmd.PersistentFlags().Bool("describe", false, "Show available --param keys for this command (required and optional) then exit")
 	rootCmd.PersistentFlags().Bool(flagYesName, false, "Skip write confirmation")

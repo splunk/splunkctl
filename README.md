@@ -71,6 +71,8 @@ Alternatively, use flags or env vars per-invocation:
 
 Priority: flag > env var > config file.
 
+**HTTP timeout:** Every request has a 30-second default timeout. Override it per-invocation with `--timeout <seconds>` (e.g. `splunkctl --timeout 60 index list`) for operations that may need longer. This is CLI-only — there's no env var or config file setting for it, and the value must be a positive integer.
+
 **Step 3 — Verify**
 
 ```bash
@@ -212,7 +214,7 @@ splunkctl/
 ├── internal/            # Shared client, config, and output-formatting code
 ├── docs/                # Architecture, testing, codegen, and contribution docs
 ├── cicd/                # CI pipeline definitions and Orca deployment tooling for integration tests
-└── tests/integration/   # Golden-file integration tests, one config per command
+└── tests/integration/   # Live integration tests with reusable profiles or exact golden files
 ```
 
 Fixing a broken command? Start in `cmd/generated/` and `cmd/override/` —
