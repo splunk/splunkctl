@@ -69,6 +69,19 @@ The root still installs write safety because offline commands can modify local s
 
 ---
 
+## Search app context comes from the REST namespace
+
+The search job form field `app=` does not select the knowledge-object namespace.
+When `--app` is set, `search` and `search export` use `RawDoAbs()` with
+`/servicesNS/<owner>/<app>/search/jobs` (and `/export`), where `--owner` defaults
+to `nobody`. Polling, results, and detached-job TTL updates reuse that same
+namespace so app-local lookups and macros work on namespace-restricted deployments.
+Without `--app`, the existing `/services/search/jobs` path is preserved and
+`--owner` has no effect. Extending the standalone `jobs` commands with namespace
+flags remains separate work.
+
+---
+
 ## PathVarPlaceholder in generator (not regex at runtime)
 
 Some REST URIs have `{name}` in the middle (e.g. `/data/indexes/{name}/enable/`). At generation time, we know the exact placeholder string. Rather than embedding a regex in each generated command, we emit a direct `strings.ReplaceAll(path, "{name}", resourceID)`. This keeps generated code simple and avoids a runtime `regexp` import in every generated file.
@@ -151,7 +164,7 @@ described above.
 
 `splunkctl app install <path>` sends `filename=true` in the POST body rather than uploading the file bytes as multipart. Splunk then reads the archive from its own filesystem. Multipart upload is blocked by Splunk Cloud WAF and is not a supported path.
 
-The archive must exist on the Splunk server's filesystem. In CI, `orca_service.py` stages the test archive via `scp` before tests run.
+The archive must exist on the Splunk server's filesystem. On ORCA, `orca_service.py` stages the test archive via `scp`; on a CO2 stack there is no shell access, so the CI staging step is still open (see [CI behavior](testing.md#ci-behavior)).
 
 ---
 

@@ -72,6 +72,8 @@ Run `splunkctl schema --compact` only when the group is unclear.
 splunkctl search 'index=main error' --output json
 splunkctl search 'index=main sourcetype=access_combined status=500' --maxout 50 --output json
 splunkctl search export 'index=main | head 100' --output json
+splunkctl --yes search '| inputlookup my_lookup' --app my_app --output json
+splunkctl --yes search export '`my_macro`' --app my_app --maxout 20 --output json
 
 splunkctl search 'index=main earliest=-7d' --detach
 # returns {"job_id":"<sid>","ttl":3600}
@@ -79,6 +81,11 @@ splunkctl jobs status <sid> --output json
 splunkctl jobs show <sid> --output json
 splunkctl jobs list --output json
 ```
+
+Use `--app` to resolve app-local lookups and macros. Both search commands accept
+`--owner` (default `nobody`), used only with `--app`. Standalone `jobs` commands
+still use `/services` and may not reach detached app-scoped jobs in
+namespace-restricted deployments.
 
 ### Indexes
 

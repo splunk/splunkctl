@@ -41,7 +41,7 @@ func TestFetchResults_HappyPath(t *testing.T) {
 	})
 	defer srv.Close()
 
-	err := fetchResults(newSearchCmd(), c, "mysid", 100, "json")
+	err := fetchResults(newSearchCmd(), c, "/services/search/jobs", "mysid", 100, "json")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -56,7 +56,7 @@ func TestFetchResults_ClampsMaxoutTooLow(t *testing.T) {
 	})
 	defer srv.Close()
 
-	_ = fetchResults(newSearchCmd(), c, "mysid", 0, "")
+	_ = fetchResults(newSearchCmd(), c, "/services/search/jobs", "mysid", 0, "")
 	if gotCount != "100" {
 		t.Errorf("expected count=100 when maxout=0, got count=%q", gotCount)
 	}
@@ -71,7 +71,7 @@ func TestFetchResults_ClampsMaxoutTooHigh(t *testing.T) {
 	})
 	defer srv.Close()
 
-	_ = fetchResults(newSearchCmd(), c, "mysid", 99999, "")
+	_ = fetchResults(newSearchCmd(), c, "/services/search/jobs", "mysid", 99999, "")
 	if gotCount != "100" {
 		t.Errorf("expected count=100 when maxout=99999, got count=%q", gotCount)
 	}
@@ -84,7 +84,7 @@ func TestFetchResults_HTTPError(t *testing.T) {
 	})
 	defer srv.Close()
 
-	err := fetchResults(newSearchCmd(), c, "mysid", 100, "")
+	err := fetchResults(newSearchCmd(), c, "/services/search/jobs", "mysid", 100, "")
 	if err == nil {
 		t.Fatal("expected error for HTTP 500")
 	}
@@ -109,7 +109,7 @@ func TestPollJob_IsDoneSuccess(t *testing.T) {
 	})
 	defer srv.Close()
 
-	err := pollJob(context.Background(), c, "mysid", 0)
+	err := pollJob(context.Background(), c, "/services/search/jobs", "mysid", 0)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -122,7 +122,7 @@ func TestPollJob_FailedState(t *testing.T) {
 	})
 	defer srv.Close()
 
-	err := pollJob(context.Background(), c, "mysid", 0)
+	err := pollJob(context.Background(), c, "/services/search/jobs", "mysid", 0)
 	if err == nil {
 		t.Fatal("expected error for FAILED state")
 	}
@@ -138,7 +138,7 @@ func TestPollJob_ErrorState(t *testing.T) {
 	})
 	defer srv.Close()
 
-	err := pollJob(context.Background(), c, "mysid", 0)
+	err := pollJob(context.Background(), c, "/services/search/jobs", "mysid", 0)
 	if err == nil {
 		t.Fatal("expected error for ERROR state")
 	}
@@ -154,7 +154,7 @@ func TestPollJob_HTTPError(t *testing.T) {
 	})
 	defer srv.Close()
 
-	err := pollJob(context.Background(), c, "mysid", 0)
+	err := pollJob(context.Background(), c, "/services/search/jobs", "mysid", 0)
 	if err == nil {
 		t.Fatal("expected error for HTTP 500")
 	}

@@ -1,4 +1,4 @@
-.PHONY: build build-release build-runner test generate-integration generate-integration-local test-integration test-integration-local fmt fmt-check generate clean
+.PHONY: build build-release build-runner test generate-integration generate-integration-local test-integration test-integration-shc test-integration-local fmt fmt-check generate clean
 
 include VERSION
 
@@ -9,9 +9,9 @@ OS       := $(shell uname -s | tr '[:upper:]' '[:lower:]')
 ARCH     := $(shell uname -m)
 PLATFORM := $(OS)_$(ARCH)
 
-
 INTEGRATION_MODE ?= test
 INTEGRATION_CMD ?=
+INTEGRATION_ROOT ?= tests/integration/core
 SPLUNKCTL_BIN ?= $(CURDIR)/bin/splunkctl
 INTEGRATION_RUNNER ?= $(CURDIR)/bin/integration-runner
 LOCAL_DEPLOYMENT_FILE ?= cicd/tools/orca/deployment/local-deployment.yml
@@ -50,8 +50,13 @@ test-integration:
 	"$(INTEGRATION_RUNNER)" \
 		--mode "$(INTEGRATION_MODE)" \
 		--cmd "$(INTEGRATION_CMD)" \
+		--root "$(INTEGRATION_ROOT)" \
 		--binary "$(SPLUNKCTL_BIN)"
 
+test-integration-shc:
+	$(MAKE) test-integration INTEGRATION_ROOT=tests/integration/clustering
+
+# Run standalone integration tests against the local environment.
 test-integration-local: build-runner
 	@set -e; \
 	config_file="$$(mktemp)"; \
@@ -63,7 +68,8 @@ test-integration-local: build-runner
 	export SPLUNKCTL_TOKEN="$$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["token"])' "$$config_file")"; \
 	$(MAKE) test-integration \
 		INTEGRATION_MODE="$(INTEGRATION_MODE)" \
-		INTEGRATION_CMD="$(INTEGRATION_CMD)"
+		INTEGRATION_CMD="$(INTEGRATION_CMD)" \
+		INTEGRATION_ROOT=tests/integration/core
 
 generate-integration: INTEGRATION_MODE=generate test-integration
 

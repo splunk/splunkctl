@@ -33,12 +33,14 @@ var jobsListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List recent search jobs",
 	Example: `  splunkctl jobs list
-  splunkctl jobs list --output json`,
+  splunkctl jobs list --output json
+  splunkctl jobs list --param count=5 --output json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		c := cmdctx.ClientFrom(cmd)
 		results, err := c.Do(cmd.Context(), client.Request{
 			Method: "GET",
 			Path:   "/search/jobs",
+			Params: cmdctx.ExtraParams(cmd, map[string]string{}),
 		})
 		if err != nil {
 			return err
@@ -73,11 +75,11 @@ var jobsShowCmd = &cobra.Command{
 		}
 
 		// poll until done
-		if err := pollJob(cmd.Context(), c, sid, 0); err != nil {
+		if err := pollJob(cmd.Context(), c, "/services/search/jobs", sid, 0); err != nil {
 			return err
 		}
 		// fetch results with default maxout
-		return fetchResults(cmd, c, sid, 100, outFmt)
+		return fetchResults(cmd, c, "/services/search/jobs", sid, 100, outFmt)
 	},
 }
 

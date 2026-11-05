@@ -16,6 +16,7 @@
 - [Integration Tests](#integration-tests)
   - [Overview](#overview)
   - [Structure](#structure)
+  - [Count-limit checks](#count-limit-checks)
   - [Reusable expectation profiles](#reusable-expectation-profiles)
   - [Example: the `app` integration test](#example-the-app-integration-test)
   - [Writing a new integration test](#writing-a-new-integration-test)
@@ -290,7 +291,7 @@ func TestBuildGeneratedFile_PathTemplate(t *testing.T) {
 
 ## Overview
 
-Integration tests run the real, compiled `splunkctl` binary against a **live Splunk instance**. They catch things unit tests cannot: real REST API behavior, real authentication, and real end-to-end command output — at the cost of needing a reachable Splunk instance to run.
+The YAML integration suites run the real, compiled `splunkctl` binary against a **live Splunk instance**. They catch things unit tests cannot: real REST API behavior, real authentication, and real end-to-end command output — at the cost of needing a reachable Splunk instance to run.
 
 Each integration case uses one of two assertion styles:
 
@@ -301,7 +302,7 @@ If you add or change a command's behavior in a way that affects what it sends to
 
 ## Structure
 
-Integration tests live under `tests/integration/`, one directory per command, grouped by command category:
+Live integration fixtures live under `tests/integration/`, one directory per command, grouped by command category:
 
 ```
 tests/integration/
@@ -311,12 +312,30 @@ tests/integration/<group>/test_<command>/
   output/<testname>.json  — expected result for each golden-backed case
 ```
 
-- `<group>` is a category such as `core`.
+- `<group>` is a category. There are two suites: `core` (tests that run against a standalone instance) and `clustering` (tests that need a search head cluster and indexer cluster).
 - `configs/<command>.yml` lists one or more test cases. Each case has a `testname`, the exact `splunkctl_cmd` to run, and optionally an `expectation` profile name.
 - `expectations.yml` contains shared profiles. Profile-backed cases do not need a file under `output/`.
 - `output/<testname>.json` holds the expected result for a golden-backed case.
 
 Test names in the YAML file must use the command name as a prefix (e.g., `test_app_install_success`, not `install_success`). A test with no `expectation` maps to exactly one golden file in `output/`.
+
+### Count-limit checks
+
+The jobs and dashboard count cases supply a positive `min_count` threshold:
+
+```yaml
+- testname: test_jobs_list_count_limit
+  splunkctl_cmd: 'jobs list --read-only --output json --param count=5'
+  expectation: cli_success_json_array_any
+  min_count: 5
+```
+
+The runner executes the command once without changing its arguments, validates
+its expectation profile, and requires at least `min_count` entries. Fewer
+entries fail. The YAML command supplies any API count parameter explicitly;
+the runner adds none. These cases require at least five available jobs and
+dashboards. `min_count` checks a lower bound, not the API's upper response limit;
+the handler unit tests separately verify that `count` reaches the API.
 
 ## Reusable expectation profiles
 
@@ -430,7 +449,7 @@ Test mode is the default (`INTEGRATION_MODE=test`, or simply omitting `INTEGRATI
 make test-integration INTEGRATION_CMD=app
 ```
 
-`INTEGRATION_CMD` selects a config filename without `.yml`; omit it to run every integration test.
+`INTEGRATION_CMD` selects a config filename without `.yml`; omit it to run every config in the selected suite. `make test-integration` runs the `core` suite unless you override `INTEGRATION_ROOT` (see [Selecting an integration test suite](#selecting-an-integration-test-suite)).
 
 ## Running locally
 
@@ -442,6 +461,8 @@ export SPLUNKCTL_HOST=https://your-splunk-host:8089
 export SPLUNKCTL_TOKEN=<your-token>
 make test-integration INTEGRATION_CMD=server_health
 ```
+
+To run the clustering suite instead, use `make test-integration-shc`. It needs a host and token for a search head in a cluster, so it is normally run only by CI.
 
 `SPLUNKCTL_HOST` and `SPLUNKCTL_TOKEN` must be configured (via `~/.splunkctl/config.yaml` or env vars) pointing at a live Splunk instance. The integration runner adds `--insecure` to every test command, so use it only with the intended test deployment.
 
@@ -470,6 +491,8 @@ make test-integration INTEGRATION_CMD=server_health
    make test-integration-local INTEGRATION_CMD=server_health
    ```
 
+`make test-integration-local` always runs the `core` suite, because a local instance is standalone. It sets `INTEGRATION_ROOT=tests/integration/core` itself, so an `INTEGRATION_ROOT` you pass to it has no effect.
+
 The local target builds both binaries, verifies the credentials, enables token authentication, and creates a one-hour ephemeral bearer token. It supplies the generated host and token only to the integration-test process and removes the temporary configuration afterward. It does not stop or delete the local Splunk instance.
 
 To update golden files against the local instance, set generate mode explicitly:
@@ -490,14 +513,56 @@ The integration runner uses enhanced output by default, including per-test timin
 
 ## CI behavior
 
-CI (ORCA) runs integration tests the same way as locally, but some tests need a file staged on the Splunk server's own filesystem first — the app integration tests are the current example.
+**CO2.** CI runs the `tests/integration/core` suite against a CO2 standalone stack (`SingleInstance`, one search head). The manual `splunk-deploy-co2-sh1` job creates the stack and records its host and an admin token in an artifact; `integration-test-co2-sh1` writes `~/.splunkctl/config.yaml` from it and runs `make test-integration`; `cleanup-co2-sh1` submits a TTL-0 request for the stack. The clustering suite is not run here.
+
+**ORCA.** CI also creates one ORCA search head cluster per Splunk version and runs the clustering suite against it:
+
+| Deploy job | Deployment | Test job | Make target | Suite | Cleanup job |
+|---|---|---|---|---|---|
+| `splunk-deploy-orca-shc` | Three search heads and three indexers, with search-head and index clustering (`--so 0 --sh 3 --shc --idx 3 --idc`) | `integration-test-orca-shc` | `make test-integration-shc` | `tests/integration/clustering` | `cleanup-orca-shc` |
+
+Every CO2 and ORCA job runs once per Splunk version in the `splunk_versions` input of `.gitlab-ci.yml`, which defaults to `10.6.0.0` and `10.6.2.0`. Use the exact four-part version string: the build fetcher has builds for `10.6.0.0` and `10.6.2.0`, and returns no build for short forms such as `10.6.0` or `10.6.2`, or for the Splunk Cloud package `10.5.2605.3`.
+
+Cleanup runs `orca_service.py destroy` with the deploy job's deployment file. The cleanup job is `when: always`, so it runs after its test job whether the tests pass or fail. A deploy job that fails also runs `destroy` from its `after_script`. `destroy` does nothing if the deployment file is missing or empty, for example when `orca create` failed before writing it. It also skips local deployment files. Deployments are also created with a `retention_time` label of `ORCA_RETENTION_SECONDS` (10800, or 180 minutes). The pipeline treats this as the deployment's retention time.
+
+`orca_service.py` has these deploy subcommands:
+
+- `create-standalone`: creates one standalone Splunk instance. No CI job calls it; it is kept as a fallback.
+- `create-shc`: creates the clustered deployment described above.
+- `create`: an alias for `create-standalone`.
+
+### Selecting an integration test suite
+
+After building the binaries and configuring access to a suitable Splunk deployment, select a suite with `INTEGRATION_ROOT`:
+
+```bash
+# Core tests against a standalone instance (the default)
+make test-integration
+
+# Clustering tests against an SHC deployment
+make test-integration-shc
+
+# Equivalent to test-integration-shc
+make test-integration INTEGRATION_ROOT=tests/integration/clustering
+```
+
+The Makefile sets `INTEGRATION_ROOT` to `tests/integration/core`, so `make test-integration` runs only the core suite. `make test-integration-shc` is a shortcut that re-runs `test-integration` with the clustering root, so `INTEGRATION_CMD` and `INTEGRATION_MODE` still apply to it.
+
+Only a direct `bin/integration-runner` call without `--root` searches all of `tests/integration`, because the runner's own default is `tests/integration`. The `core` and `clustering` suites can use the shared profiles in `tests/integration/expectations.yml`.
+
+### Test-app staging
+
+Some tests require a file on the Splunk server's filesystem. For ORCA deployments, `orca_service.py` stages the test app when `--test-app-path` is provided.
 
 | Context | Path |
 |---|---|
-| CI (ORCA) | `/opt/splunk/var/run/splunk/test_app.tgz` (set via `CI_TEST_APP_PATH`) |
-| Local | `$PWD/tests/resources/TestApp/test_app.tgz` (shell fallback) |
+| CI (ORCA) | `/opt/splunk/var/run/splunk/test_app.tgz` |
+| CI (CO2) | Not staged yet. A CO2 stack has no shell access, so there is no supported way to put the archive on it. |
+| Local | `$PWD/tests/resources/TestApp/test_app.tgz` |
 
-The config YAML uses `${CI_TEST_APP_PATH:-$PWD/tests/resources/TestApp/test_app.tgz}` so both environments work without modification — see the `test_app_install_success` case in [the `app` example above](#example-the-app-integration-test). In CI, `orca_service.py` stages the archive onto the ORCA container via `scp` during the deployment phase so the file is present on the Splunk server before tests run.
+The seven `app` tests that need the archive (`test_app_install_success`, `test_app_display_multiply_success`, `test_app_timeout_success`, `test_app_display_read_only_success`, `test_app_disable_success`, `test_app_enable_success`, `test_app_remove_success`) are commented out in `tests/integration/core/test_app/configs/app.yml` because CO2 cannot stage the archive yet. The file is shared, so no platform runs them until they are restored. The other six `app` tests run everywhere. The config YAML uses `${CI_TEST_APP_PATH:-$PWD/tests/resources/TestApp/test_app.tgz}` so the path can be overridden without changing the test — see the `test_app_install_success` case in [the `app` example above](#example-the-app-integration-test).
+
+For an SHC deployment, the helper selects the first search head for both staging the app and connecting the CLI.
 
 # Override registration testing
 

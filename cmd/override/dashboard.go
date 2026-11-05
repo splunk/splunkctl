@@ -60,7 +60,8 @@ var dashboardListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List dashboards",
 	Example: `  splunkctl dashboard list
-  splunkctl dashboard list --app search --output json`,
+  splunkctl dashboard list --app search --output json
+  splunkctl dashboard list --param count=5 --output json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		c := cmdctx.ClientFrom(cmd)
 		app, _ := cmd.Flags().GetString("app")
@@ -69,7 +70,8 @@ var dashboardListCmd = &cobra.Command{
 		if name != "" {
 			path += url.PathEscape(name)
 		}
-		body, status, err := c.RawDoAbs(cmd.Context(), "GET", path+"?output_mode=json", nil)
+		query := urlValues(cmdctx.ExtraParams(cmd, map[string]string{}))
+		body, status, err := c.RawDoAbs(cmd.Context(), "GET", path+"?"+query.Encode(), nil)
 		if err != nil {
 			return err
 		}
