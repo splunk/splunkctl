@@ -104,6 +104,14 @@ splunkctl workload-rule add my_rule --predicate "app=search" --workload_pool hig
 splunkctl shcluster-maintenance-mode enable
 ```
 
+For lookups or macros defined in a specific app, pass `--app` to either search command.
+These examples assume the lookup and macro already exist in `my_app`:
+
+```bash
+splunkctl --yes search '| inputlookup my_lookup' --app my_app --output json
+splunkctl --yes search export '`my_macro`' --app my_app --maxout 20 --output json
+```
+
 ## Write safety
 
 - Use `--read-only` to block local changes and Splunk API requests that could modify data.
@@ -213,7 +221,7 @@ splunkctl/
 ├── codegen/             # The generator itself — parses the REST API definition, emits cmd/generated/
 ├── internal/            # Shared client, config, and output-formatting code
 ├── docs/                # Architecture, testing, codegen, and contribution docs
-├── cicd/                # CI pipeline definitions and Orca deployment tooling for integration tests
+├── cicd/                # CI pipeline definitions and CO2/Orca deployment tooling for integration tests
 └── tests/integration/   # Live integration tests with reusable profiles or exact golden files
 ```
 
@@ -275,7 +283,7 @@ generate a new one (see [Configure SplunkCTL](#configure-splunkctl)).
 
 ### Compatibility ✅
 
-Tested in CI against Splunk 10.4.0 and 10.4.2.
+Tested in CI against Splunk 10.6.0.0 and 10.6.2.0.
 
 Supported platforms:
 

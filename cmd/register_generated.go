@@ -12,6 +12,9 @@ func init() {
 		generated.UserCmd,
 		generated.RoleCmd,
 		generated.IndexCmd,
+		generated.SecretsCmd,
+		generated.KvstorePostgresMigrationCmd,
+		generated.KvstorePostgresMigrationStatusCmd,
 	} {
 		c.GroupID = "core"
 		rootCmd.AddCommand(c)
@@ -59,6 +62,7 @@ func init() {
 		generated.ShclusterMaintenanceModeCmd,
 		generated.ShclusterKvmigrationStatusCmd,
 		generated.ShclusterKvupgradeStatusCmd,
+		generated.ShclusterSecretsCmd,
 		generated.ShclusterReplicatedConfigCmd,
 		generated.ShclusterSchedulerCacheCmd,
 		generated.ShclusterSchedulerJobsCmd,

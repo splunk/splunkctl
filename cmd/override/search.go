@@ -29,9 +29,11 @@ var SearchCmd = &cobra.Command{
 	Long: `Submit a Splunk search job and stream results to stdout.
 
 Waits for the job to complete, then prints results.
-Use --detach to return the job ID immediately.`,
+Use --detach to return the job ID immediately.
+Use --app to resolve app-local knowledge objects, with --owner for a user namespace.`,
 	Example: `  splunkctl search 'index=main error'
   splunkctl search 'index=main' --maxout 500 --output json
+  splunkctl search '| inputlookup my_lookup' --app my_app --owner nobody
   splunkctl search 'index=main sourcetype=access_combined' --detach`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runSearch,
@@ -41,7 +43,8 @@ func init() {
 	SearchCmd.Flags().Int("max-time", 0, "Max job runtime in seconds (0 = no limit)")
 	SearchCmd.Flags().Int("maxout", 100, "Max results to return (max 50000)")
 	SearchCmd.Flags().Bool("detach", false, "Submit job and return immediately with job ID")
-	SearchCmd.Flags().String("app", "", "App context for the search")
+	SearchCmd.Flags().String("app", "", "App namespace for resolving search knowledge objects")
+	SearchCmd.Flags().String("owner", "nobody", "Namespace owner (used only with --app)")
 	SearchCmd.Flags().String("workload-pool", "", "Workload pool name")
 }
 
@@ -50,11 +53,14 @@ var searchExportCmd = &cobra.Command{
 	Use:   "export <query>",
 	Short: "Stream search results without a persistent job (fastest for ad hoc queries)",
 	Example: `  splunkctl search export 'index=main error earliest=-1h'
-  splunkctl search export 'index=main' --maxout 1000 --output json`,
+  splunkctl search export 'index=main' --maxout 1000 --output json
+  splunkctl search export '| inputlookup my_lookup' --app my_app --output json`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		maxout, _ := cmd.Flags().GetInt("maxout")
 		outFmt, _ := cmd.Flags().GetString("output")
+		app, _ := cmd.Flags().GetString("app")
+		owner, _ := cmd.Flags().GetString("owner")
 
 		query := strings.Join(args, " ")
 		if !strings.HasPrefix(strings.TrimSpace(query), "search ") &&
@@ -70,7 +76,7 @@ var searchExportCmd = &cobra.Command{
 			form.Set("count", fmt.Sprintf("%d", maxout))
 		}
 
-		body, status, err := c.RawDo(cmd.Context(), "POST", "/search/jobs/export", form)
+		body, status, err := c.RawDoAbs(cmd.Context(), "POST", searchJobsPath(app, owner)+"/export", form)
 		if err != nil {
 			return fmt.Errorf("export: %w", err)
 		}
@@ -98,7 +104,18 @@ var searchExportCmd = &cobra.Command{
 
 func init() {
 	searchExportCmd.Flags().Int("maxout", 100, "Max results to stream")
+	searchExportCmd.Flags().String("app", "", "App namespace for resolving search knowledge objects")
+	searchExportCmd.Flags().String("owner", "nobody", "Namespace owner (used only with --app)")
 	SearchCmd.AddCommand(searchExportCmd)
+}
+
+// A form app= field does not select the knowledge-object namespace. Keep the
+// selected endpoint for the entire job lifecycle, including control requests.
+func searchJobsPath(app, owner string) string {
+	if app == "" {
+		return "/services/search/jobs"
+	}
+	return "/servicesNS/" + url.PathEscape(owner) + "/" + url.PathEscape(app) + "/search/jobs"
 }
 
 func runSearch(cmd *cobra.Command, args []string) error {
@@ -106,6 +123,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	maxout, _ := cmd.Flags().GetInt("maxout")
 	detach, _ := cmd.Flags().GetBool("detach")
 	app, _ := cmd.Flags().GetString("app")
+	owner, _ := cmd.Flags().GetString("owner")
 	workload, _ := cmd.Flags().GetString("workload-pool")
 	outFmt, _ := cmd.Flags().GetString("output")
 
@@ -116,6 +134,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	c := cmdctx.ClientFrom(cmd)
+	jobsPath := searchJobsPath(app, owner)
 
 	// Step 1: submit job
 	form := url.Values{}
@@ -123,14 +142,11 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	if maxTime > 0 {
 		form.Set("max_time", fmt.Sprintf("%d", maxTime))
 	}
-	if app != "" {
-		form.Set("app", app)
-	}
 	if workload != "" {
 		form.Set("workload_pool", workload)
 	}
 
-	body, status, err := c.RawDo(cmd.Context(), "POST", "/search/jobs", form)
+	body, status, err := c.RawDoAbs(cmd.Context(), "POST", jobsPath, form)
 	if err != nil {
 		return fmt.Errorf("submitting search: %w", err)
 	}
@@ -148,22 +164,22 @@ func runSearch(cmd *cobra.Command, args []string) error {
 
 	if detach {
 		// Extend TTL to 1 hour so the job survives a multi-turn conversation.
-		c.RawDo(cmd.Context(), "POST", "/search/jobs/"+sid+"/control",
+		c.RawDoAbs(cmd.Context(), "POST", jobsPath+"/"+url.PathEscape(sid)+"/control",
 			url.Values{"action": {"setttl"}, "ttl": {"3600"}})
 		fmt.Fprintf(cmd.OutOrStdout(), `{"job_id":%q,"ttl":3600}`+"\n", sid)
 		return nil
 	}
 
 	// Step 2: poll until done
-	if err := pollJob(cmd.Context(), c, sid, maxTime); err != nil {
+	if err := pollJob(cmd.Context(), c, jobsPath, sid, maxTime); err != nil {
 		return err
 	}
 
 	// Step 3: fetch results
-	return fetchResults(cmd, c, sid, maxout, outFmt)
+	return fetchResults(cmd, c, jobsPath, sid, maxout, outFmt)
 }
 
-func pollJob(ctx context.Context, c *client.Client, sid string, maxTimeSec int) error {
+func pollJob(ctx context.Context, c *client.Client, jobsPath, sid string, maxTimeSec int) error {
 	var deadline time.Duration
 	if maxTimeSec > 0 {
 		deadline = time.Duration(maxTimeSec+pollDeadlineGraceSec) * time.Second
@@ -180,7 +196,7 @@ func pollJob(ctx context.Context, c *client.Client, sid string, maxTimeSec int) 
 			fmt.Fprintf(os.Stderr, "\rwaiting for job %s... (elapsed: %s)", sid, time.Since(start).Round(time.Second))
 		}
 
-		body, status, err := c.RawDo(ctx, "GET", "/search/jobs/"+sid, nil)
+		body, status, err := c.RawDoAbs(ctx, "GET", jobsPath+"/"+url.PathEscape(sid), nil)
 		if err != nil {
 			return fmt.Errorf("polling job: %w", err)
 		}
@@ -223,13 +239,13 @@ func pollJob(ctx context.Context, c *client.Client, sid string, maxTimeSec int) 
 	}
 }
 
-func fetchResults(cmd *cobra.Command, c *client.Client, sid string, maxout int, outFmt string) error {
+func fetchResults(cmd *cobra.Command, c *client.Client, jobsPath, sid string, maxout int, outFmt string) error {
 	if maxout <= 0 || maxout > 50000 {
 		maxout = 100
 	}
 
-	body, status, err := c.RawDo(cmd.Context(), "GET",
-		fmt.Sprintf("/search/jobs/%s/results?count=%d", sid, maxout), nil)
+	body, status, err := c.RawDoAbs(cmd.Context(), "GET",
+		fmt.Sprintf("%s/%s/results?count=%d", jobsPath, url.PathEscape(sid), maxout), nil)
 	if err != nil {
 		return fmt.Errorf("fetching results: %w", err)
 	}

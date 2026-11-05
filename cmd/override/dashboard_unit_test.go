@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,7 +15,29 @@ import (
 	"github.com/splunk/splunkctl/internal/client"
 	"github.com/splunk/splunkctl/internal/cmdctx"
 	"github.com/splunk/splunkctl/internal/config"
+	"github.com/splunk/splunkctl/internal/output"
 )
+
+func TestDashboardList_ForwardsCountParam(t *testing.T) {
+	c, srv := newDashboardClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("count"); got != "5" {
+			t.Errorf("count query parameter = %q, want 5", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"entry":[]}`)
+	})
+	t.Cleanup(srv.Close)
+	cmd := &cobra.Command{Use: "list", RunE: dashboardListCmd.RunE}
+	cmd.Flags().StringArray("param", nil, "")
+	cmd.Flags().String("output", "json", "")
+	cmd.Flags().String("app", "", "")
+	cmd.Flags().String("name", "", "")
+	cmd.SetContext(output.WithWriter(cmdctx.WithClient(context.Background(), c), io.Discard))
+	cmd.SetArgs([]string{"--param", "count=5"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func newDashboardClient(t *testing.T, handler http.HandlerFunc) (*client.Client, *httptest.Server) {
 	t.Helper()

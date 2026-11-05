@@ -100,7 +100,15 @@ splunkctl search 'index=main earliest=-7d' --detach
 
 # Stream search results without creating a persistent job
 splunkctl search export 'index=main' --output json
+
+# Resolve a lookup or macro in its app namespace
+splunkctl --yes search '| inputlookup my_lookup' --app my_app --output json
+splunkctl --yes search export '`my_macro`' --app my_app --maxout 20 --output json
 ```
+
+Both search commands accept `--owner` (default `nobody`), used only with `--app`.
+Standalone `jobs` commands still use `/services` and may not reach detached
+app-scoped jobs in namespace-restricted deployments.
 
 ### Index Management
 
